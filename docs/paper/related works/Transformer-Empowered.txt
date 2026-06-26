@@ -1,0 +1,551 @@
+                                                                Transformer-Empowered Multi-Modal Item Embedding
+                                                                      for Enhanced Image Search in E-commerce
+                                                                           Chang Liu1,2 , Peng Hou1 , Anxiang Zeng2 , Han Yu2
+                                                                                                1
+                                                                                             Shopee Pte. Ltd., Singapore
+                                                          2
+                                                              School of Computer Science and Engineering, Nanyang Technological University, Singapore
+                                                                       {chang.liulc, peng.hou}@shopee.com, {zeng0118, han.yu}@ntu.edu.sg
+arXiv:2311.17954v2 [cs.CV] 8 Feb 2024
+
+
+
+
+                                                                     Abstract
+                                          Over the past decade, significant advances have been made in
+                                                                                                                       I2I only
+                                          the field of image search for e-commerce applications. Tra-
+                                          ditional image-to-image retrieval models, which focus solely                              Dental Floss   Battery Charger   Battery Charger   Cotton Swab
+                                          on image details such as texture, tend to overlook useful se-
+                                          mantic information contained within the images. As a result,                 MIEM + I2I
+                                          the retrieved products might possess similar image details,
+                                          but fail to fulfil the user’s search goals. Moreover, the use of
+                                          image-to-image retrieval models for products containing mul-          (a)
+                                                                                                                                    Dental Floss    Dental Floss      Dental Floss     Dental Floss
+                                          tiple images results in significant online product feature stor-
+                                          age overhead and complex mapping implementations. In this
+                                          paper, we report the design and deployment of the proposed
+                                          Multi-modal Item Embedding Model (MIEM) to address these                     I2I only
+
+                                          limitations. It is capable of utilizing both textual informa-
+                                                                                                                                      Pepsi              Pepsi             Bottle       Necklace
+                                          tion and multiple images about a product to construct mean-
+                                          ingful product features. By leveraging semantic information
+                                                                                                                       MIEM + I2I
+                                          from images, MIEM effectively supplements the image search
+                                          process, improving the overall accuracy of retrieval results.
+                                          MIEM has become an integral part of the Shopee image search           (b)
+                                          platform. Since its deployment in March 2023, it has achieved                               Pepsi              Pepsi             Pepsi          Pepsi
+
+                                          a remarkable 9.90% increase in terms of clicks per user and a
+                                          4.23% boost in terms of orders per user for the image search       Figure 1: Search results comparison using different mod-
+                                          feature on the Shopee e-commerce platform.                         els. The left column displays user queries as images, while
+                                                                                                             the right column showcases the top 4 retrieved items. Each
+                                                                                                             item image is accompanied by its respective product name.
+                                                                  Introduction                               Notably, employing Image-to-image (I2I) solely emphasizes
+                                        The image search feature on modern e-commerce platforms              visual details, disregarding semantic information. However,
+                                        has become a convenient and efficient way for users to find          by integrating MIEM with I2I, these limitations can be effec-
+                                        desired products without the need to input keywords. When            tively addressed.
+                                        a user uploads an image, this feature automatically identi-
+                                        fies items within the picture and returns relevant products on
+                                        a given e-commerce platform. This functionality not only
+                                        saves time and effort for the users, but also enhances their         often results in products with similar packaging (e.g., bat-
+                                        shopping experience. The image search feature often relies           tery chargers, cotton swabs) being retrieved. Secondly, it ne-
+                                        on an image embedding modeling (Chicco 2021) to extract              glects semantic information within the image. The presence
+                                        features from images. Based on these features, K-nearest             of detection model biases on the product side may intro-
+                                        neighbors (KNN) clustering (Fix and Hodges 1989) is of-              duce noises, leading to erroneous retrievals when multiple
+                                        ten leveraged to identify similar images within the database.        product entities exist within an image. For example, in Fig-
+                                           However, such an single-modal approach has two major              ure 1(b), the latter two retrieved products are a plastic bottle
+                                        limitations. Firstly, it overemphasizes on visual details. The       and a necklace, with the soda can merely serving as a ref-
+                                        image embedding model tends to retrieve products with sim-           erence object and not a product itself. Such issues can be
+                                        ilar image details, but not necessarily belonging to the same        mitigated with multi-modal techniques, which incorporate
+                                        category. For instance, a query for dental floss in Figure 1(a)      both textual and visual information and are robust to noises.
+                                        Copyright © 2024, Association for the Advancement of Artificial         In addition, image embedding poses engineering chal-
+                                        Intelligence (www.aaai.org). All rights reserved.                    lenges. Due to the large number of products in Shopee’s e-
+commerce platform1 and the need for multiple-replications         1. It executes a product detection model to obtain the
+(Zhang et al. 2018), generating an embedding for each im-            bounding boxes for the products in the image.
+age requires a huge index volume. Furthermore, dealing            2. The cropped images from the bounding boxes are then
+with multiple images per product requires mapping and de-            passed through two recall models: 1) Image-to-Image
+duplication, further increasing engineering complexity.              (I2I) recall, and 2) MIEM recall.
+   Technologies that have the potential to mitigate these
+challenges have emerged. Vision-language pretrained mod-          3. The recalled products are sent to the ranking model,
+els like CLIP (Radford et al. 2021) can align images and             where they are sorted in descending order of their ranking
+texts in the same feature space, thereby supporting user             scores, producing the final list of recommended products.
+image-based product search. However, these solutions fail            The integration of MIEM into the Shopee Image Search
+to effectively cross-reference information across product im-     Engine is based on the framework shown in Figure 3, con-
+ages and texts, resulting in low recall score during recall       sisting of the online and the offline components. The online
+phase. Cheng et al. employed concept-aware modality fu-           component performs the following steps to retrieve the prod-
+sion to integrate information from a single image with texts,     ucts using MIEM:
+but it cannot accommodate multiple images (Cheng et al.           1. Upon receiving a user request, the request handler per-
+2023). Besides, it reliance on KnnSoftmax (Song et al. 2020)         forms the initial task of parsing the request from various
+for training also increases implementation complexity dur-           sources, such as webpages or different versions of the
+ing training. A line of previous works (e.g., METER(Dou              mobile app, and transforms it into a unified format. Once
+et al. 2022) and X-VLM (Zeng, Zhang, and Li 2022)) has ad-           the request has been standardized, it is subsequently for-
+dressed image-to-text ranking a merge/cross attention trans-         warded to the search server for further processing.
+former to generate matching scores for pairs of images
+and texts. However, these models have limitations in fusing       2. The search server invokes the feature service module,
+multi-modal information during the recall phase.                     which then calls the detection service module to obtain
+   To tackle these issues comprehensively, we propose the            the bounding boxes for the products in the image.
+Multi-modal Item Embedding Model (MIEM). In this paper,           3. The cropped query image is used to invoke both the I2I
+we present the design and deployment experience of MIEM              model and the MIEM model services to obtain embed-
+in the Shopee e-commerce platform. MIEM takes multiple               dings for the products.
+images and product titles as the input, and leverages a Merge     4. The search proxy uses these embeddings to perform
+Attention Transformer Module (Dou et al. 2022) to fuse in-           approximate nearest neighbor (ANN) search using the
+formation from both images and texts, thereby producing an           HNSW method (Malkov and Yashunin 2018) in two in-
+embedding for a given product. The incorporation of prod-            dex databases: 1) the I2I index and 2) the MIEM index.
+uct titles injects explicit semantic information into the em-        For the I2I index, the corresponding product IDs are ob-
+bedding, effectively alleviating the issue of the image em-          tained for the top-K retrieved images, and then subjected
+bedding model excessively focusing on image details. MIEM            to de-duplication (i.e., products with same IDs will only
+has been deployed in the Shopee e-commerce platform since            pertain one in the recalled list). For MIEM, the prod-
+March 2023 to power its image search business. Compared              uct IDs can be directly returned. Then, the search proxy
+to the previous adopted solution, MIEM has led to a remark-          merges the two sets of retrieved product IDs and sends
+able 9.90% increase in clicks per user and a 4.23% boost in          them back to the search server.
+the orders per user metric.
+                                                                  5. The search server forwards the retrieved product list to
+                                                                     the rank service, which scores each product based on rel-
+                   Application Description                           evance, popularity and other factors. The products are
+                                                                     then sorted in descending order of their scores and re-
+                                                                     turned as the final output list.
+  User Request
+                                                                  6. The log dumping service records and stores various user-
+                        I2I Recall                                   related activities, including user requests, impressions,
+    Product
+                                     Ranking     Search Results
+                                                                     and interactions with the search results (e.g., click, add-
+   Detection
+                                                                     to-cart, order). This helps to facilitate data analysis as
+                       MIEM Recall
+                                                                     well as model improvements to enhance the overall user
+                                                                     experience.
+Figure 2: An overview of the Shopee Image Search Engine.             The offline component is responsible for building and
+                                                                  updating the product indices, and operates as a scheduled
+   The overall workflow of the Shopee Image Search Engine         task. For the I2I embedding pre-calculation task, the system
+is depicted in Figure 2. The system takes a user’s request        first perform product detection on the product images, and
+(i.e., an uploaded image) as the input, and outputs a list of     subsequently passes the cropped products to the I2I model
+products it deems to be relevant. Upon receiving the user’s       to obtain the embeddings. For the MIEM embedding pre-
+request, the system performs the following steps:                 calculation task, the system directly inputs the associated
+                                                                  product images and titles into the model to obtain the em-
+   1
+       https://shopee.sg/                                         beddings. The embeddings from both tasks are added to their
+                               User request
+                                              Request Handler                                            Online   Offline
+
+                                                                                                                               Hive Tables
+                                               Search Server
+
+                                                                                                                             I2I Embedding
+                Log Dumping                                                                                                  Pre-calculation
+                                       Feature Service          Rank Service           Search Proxy
+                   Service
+                                                                                                                            MIEM Embedding
+                                                                                                                             Pre-calculation
+
+                                       I2I Query
+               Detection
+                                      Embedding
+                                                                               I2I Index        MIEM Index                    Index Service
+                Category             MIEM Query
+              Classification         Embedding
+
+
+ Figure 3: The integration of MIEM into the Shopee Image Search Engine. The arrows indicate the request triggering process.
+
+respective index database using the index service. In addi-                          that this structure achieves better performance than using
+tion, the index service manages the removal of indices cor-                          6 layers of cross attention (which is commonly used in
+responding to unavailable products.                                                  image-text pretrained models). While cross attention is
+                                                                                     suitable for ranking tasks, merge attention can better pre-
+                 Use of AI Technology                                                serve information from both modalities, leading to im-
+The proposed MIEM approach primarily utilizes user queries                           proved recall scores in modality fusion.
+and their corresponding clicked products as the training data.                    4. Projection Layer: a single fully connected (FC) layer is
+In this section, we introduce the model design of MIEM and                           used as the project layer. For image encoder projection,
+how to train this model.                                                             the average of patch-level embeddings is used as the in-
+                                                                                     put. For fusion encoder projection, the embedding of the
+The Design of MIEM                                                                   [CLS] token is used as the input, thereby generating the
+MIEM, as depicted in Figure 4, adopts a dual-tower structure                         final 128-dimensional feature.
+comprising two distinct components: the query tower and                              In the training phase, we utilize search click logs to train
+the item tower. The query tower takes the customer’s up-                          the model. User queries are directed to the query tower, and
+loaded query image as input and generates the correspond-                         the text and images of the clicked product are inputted into
+ing query embedding as output. On the other hand, the item                        the item tower. To jointly train both towers, we employ the
+tower processes text and multiple product images as in-                           proposed loss functions and training methods, which will be
+put and produces the item embedding. Notably, the image                           described in detail below.
+encoder is shared between the query and the item towers,                             In the inference phase, the item tower computes the item
+thereby reducing the number of parameters required and im-                        embedding offline, while the query tower computes the
+proving the recall score. The details of the model design are                     query embedding in real-time during online queries. This
+as follows:                                                                       setup enables image-to-product recall through vector-based
+1. Image Encoder: the Swin Transformer (Liu et al. 2021b)                         approximate nearest neighbor (ANN) retrieval.
+   is adopted to build the image encoder. It is a novel vision
+   transformer model that employs hierarchical feature rep-                       The Training Process of MIEM
+   resentations with linear computational complexity rela-                        A MIEM is trained separately for each country/region using
+   tive to input image size. Compared to the previous Vision                      PyTorch, and the training process involves three major steps.
+   Transformer (ViT) (Dosovitskiy et al. 2020), Swin Trans-                       Following previous works (Zeng, Zhang, and Li 2022; Li
+   former has achieved state-of-the-art results in ImageNet                       et al. 2021, 2022, 2023), we use AdamW (Loshchilov and
+   classification, COCO object detection and semantic seg-                        Hutter 2019) as the optimizer for all three steps.
+   mentation tasks. The Swin Transformer base is used in
+   MIEM to strike a balance between accuracy and speed.                           Training the Image-Text Embedding Model In this step
+2. Title Encoder: following (Zeng, Zhang, and Li 2022), we                        of training, the fusion module is not involved. The projected
+   design the title encoder based on the multilingual BERT                        query embedding and the projected text embedding are di-
+   base (Devlin et al. 2018).                                                     rectly aligned. The widely adopted InfoNCE loss approach
+3. The Fusion Module: the fusion module consists of 6 lay-                        (Oord, Li, and Vinyals 2018) is commonly used for this
+   ers of merge attention networks (Dou et al. 2022). It                          alignment:
+   concatenates patch-level embeddings from images and                                                       "                              #
+   token-level embeddings from texts, and feeds them into a                             ′                                es(Qi ,Ti )
+                                                                                      L (Q, T ) = −Ei∈[0,N ] log P               s(Qi ,Tj )
+                                                                                                                                              . (1)
+   vanilla transformer model. Empirical investigations show                                                           j∈[0,N ] e
+                             Query       Image Backbone
+                                                                                Projection Layer      Query Embedding
+                             Image         (Swin Base)
+        Click Log
+                                                                                     Query tower
+                                                                                                                                  Modality Balance
+                                                Share                                Item tower                                        Loss
+                                                weight
+                              Item
+       Class-based          Image 1
+         Sampler                                                                                                                  AM-infoNCE Loss    +
+                              Item      Image Backbone
+                            Image 2       (Swin Base)
+                                ...
+                                                           Fusion Module
+                              Item                                              Projection Layer      Item Embedding                   XBM
+                                                          (Merge Attention)
+           Item             Image K                                                                                     enqueue
+       Information
+                             Item        Title Backbone
+                             Title         (Bert Base)
+                                                                                           MIEM
+                             Item
+                                                                                                                  Optimizer
+                                                                                          Gradients               (AdamW)            Loss
+
+
+Figure 4: The system architecture of the AI Engine (MIEM). The yellow components are the trainable parts of the entire
+framework. The gray components are the training data.
+
+
+Here, Qi denotes the query image embedding. Ti represents                     XBM effectively mines hard negative samples, it is still lim-
+the item title embedding. S(Qi , Ti ) is the cosine similarity                ited by the small batch size training (Wang et al. 2020).
+between Qi and Ti . N is the batch size.                                      Thus, we avoid direct training with multiple item images.
+   Inspired by Cosface (Wang et al. 2018), we propose                            To ensure the preservation of alignment between the im-
+AM-InfoNCE to further enhance the model capability. AM-                       age and text feature space, we propose the modality balance
+InfoNCE employs two hyperparameters, γ and m, to opti-                        loss. Under this loss, the fusion embedding without the item
+mizing the decision boundary in the angular space by mini-                    image and texts is separately aligned with the query embed-
+mizing intra-class variance and maximizing inter-class vari-                  ding. In this way, the model can learn more robust feature
+ance. γ controls the overall size of the logits, while m con-                 information from individual modalities. The modality bal-
+troling the margin between classes.                                           ance loss is computed as follows:
+
+ L(Q, T ) = −Ei∈[0,N ] [                                                       Lbalance (Q, I, T ) = L(Q, F (I def , T )) + L(Q, F (I, T def ))
+
+                            eγ(s(Qi ,Ti )−m)                                                           + L(F (I def , T ), Q) + L(F (I, T def ), Q)
+            log γ(s(Q ,T )−m) P                            ].                                                                                     (3)
+               e     i  i     + j∈[0,N ],j̸=i eγs(Qi ,Tj )
+                                                           (2)                where F is the fusion module. I def and T def are default
+                                                                              item images and title embedding. Their corresponding to-
+   It is important to note that this loss is different from Cos-              kens have all-zero attention values within the fusion module.
+face (Wang et al. 2018). Cosface adopts a classification loss,                   The final loss is the sum of modality balance loss (Eq. 3),
+computing the similarity between samples in a batch and the                   AM-InfoNCE (Eq. 2) and XBM-enhanced AM-InfoNCE
+weights of each class (product) to obtain the loss. In con-                   loss:
+trast, AM-InfoNCE uses the query as a positive sample with                       Lfinal (Q, I, T ) =L(Q, F (I, T )) + L(F (I, T ), Q)
+clicked item titles and other items in the batch as negative
+samples to calculate the similarity.                                                                 + Lbalance (Q, I, T )               (4)
+                                                                                                          + L(Q, Fm ) + L(F (I, T ), Qm ),
+Training with the Fusion Module In this step, the fu-
+                                                                              where Fm is the fusion embedding in the XBM and Qm is
+sion module is involved in the training process. Only a sin-
+                                                                              query embedding in XBM (Wang et al. 2020).
+gle item image is used for training the entire model. Class-
+based sampling and Cross Batch Memory (XBM) (Wang                             Training with Multiple Item Images In this step, the fu-
+et al. 2020) are used to improve performance. Class-based                     sion module is finetuned with multiple item images. The loss
+sampling ensures that each minibatch contains products of                     function and training techniques used in Step 2 are main-
+the same class, providing more hard negative samples to                       tained during this process. To facilitate batch training and in-
+improve model performance over random sampling. XBM                           ference, we set a fixed number of item images to K (K > 1).
+(Wang et al. 2020) is a mechanism that remembers embed-                       For items with an image count below K, we provide empty
+dings from past iterations, thereby allowing the model to                     images to reach the required number of K. Conversely, for
+collect sufficient hard negative sample pairs across multi-                   items with an image count exceeding K, we truncate the im-
+ple batches. By connecting each anchor in the current batch                   ages to match the fixed number K.
+with the closest embeddings in the nearest minibatch, XBM                        After conducting experiments, we determined that setting
+provides a large number of hard negative samples. Although                    K = 4 strikes a balance between inference speed and recall
+accuracy. This choice allows us to efficiently process batches       To enhance online service efficiency, we pre-calculate the
+during training and inference while still achieving satisfac-     embeddings for items in the database. To handle the vast size
+tory recall performance, resulting in a practical and effective   of the product database and the high number of daily addi-
+configuration for the model.                                      tion/removal of items, we design the following pipeline (as
+                                                                  shown in Figure 5). We maintain a full-feature Hive table for
+Acquisition of Training Data                                      all items, partitioned by day. Eventually, the features are in-
+We leverage user click logs to train MIEM. Each log entry         putted into the MIEM Elasticsearch (ES) (Gormley and Tong
+is represented as a triplet ⟨query image, clicked item title,     2015) Index. This process is executed daily as follows:
+clicked item image list⟩. Here, the clicked item title and        1. The full-feature partition from the previous day is first
+clicked item image list correspond to the titles and images          copied into the current day partition. Deleted items and
+of the products that users clicked after using the query im-         items with changed information (e.g., images, titles) are
+age for search. While theoretically, users may click on com-         not copied. This is achieved by comparing the upstream
+pletely unrelated products, through manual reviewing and             product information table with the full-feature table from
+analysis, we found that approximately 45% of the triplets            the previous day.
+consist of query-item pairs that are identical, 50% are on        2. The information of newly added or updated items is col-
+similar items, and less than 5% are on unrelated noisy prod-         lected and sent to a PySpark (Drabas and Lee 2017) task.
+ucts. Thus, the dataset is useful for our purpose.                   This task efficiently obtains embeddings through gRPC
+   We conjecture that MIEM should be able to learn even              calls (Wang, Zhao, and Zhu 1993) to the item embedding
+from the similar item triplets. The reasons are as follows:          service, and writes them into the current day partition.
+1. From the perspective of the entire system, these similar          Items with unreadable images or titles containing only
+   items are products of interest to users. Even if they are         punctuation marks or spaces are not written into the par-
+   not identical, they should be retrieved in the recall stage.      tition.
+2. From a learning perspective, although similar item             3. We generate commands to update the ES index by com-
+   triplets do not all perfectly match, often the (query im-         paring the current day and previous day full-feature item
+   age, clicked item title) pairs correspond correctly, with         tables. We define two actions: delete and update. The
+   only differences in images. Thus, the model can still learn       delete action removes items that exist in the previous day
+   useful associations between the queries and the products          partition, but not in the current day partition. The update
+   from these examples.                                              action includes newly added or updated items for which
+Thus, we retain this portion of the data containing similar          the service successfully obtained features. These com-
+item triplets. As for the 5% of completely unrelated data, we        mands are sent to the Index service to update the ES in-
+have not conducted specific cleansing for them at present.           dex (Gormley and Tong 2015).
+This could be a potential point for future extension.                It is worth noting that although the full-feature Hive ta-
+                                                                  ble appears redundant with the ES index, it is essential for
+  Application Development and Deployment                          two reasons. Firstly, we cannot view item features in the ES
+MIEM has been deployed in the Shopee Image Search En-             index, making debugging difficult. Secondly, due to limita-
+gine, serving customers from Southeast Asia, Taiwan and           tions of the HNSW algorithm, the ES index requires periodic
+Brazil since March, 2023. The deployment follows the pro-         reconstruction. Otherwise, the recall score declines with the
+cess described in Figure 3. Throughout the development and        increasing number of updated items. Maintaining the full-
+deployment process, a collection of technologies has been         feature Hive table facilitates the reconstruction process.
+developed to meet practical requirements.
+                                                                  Online Same Item Rate Analysis
+Online Query Feature Extraction                                   To analyze the online same item rate, we periodically use
+To improve the online service delivery efficiency, the image      outsourced annotation to detect changes in the same item
+encoder (a PyTorch (Paszke et al. 2019) model) is converted       rate. The annotation task provides a query image, the top
+into a TensorRT (Vanholder 2016) model and integrated into        5 product images from the search results, and the product
+the online feature extraction service. This service takes im-
+ages and bounding boxes predicted by the detection service
+as inputs, processes the images using the TensorRT model,                                               Item Embedding      MIEM Index
+and outputs the projected image embeddings. TensorRT op-                                               Service (TensorRT)
+
+timizes the neural networks based on the GPU, leading to                                                        call                update
+
+reduced service latency.                                             Item Info Hive   Copy Available    PySpark Task on     Generate ES
+                                                                         Table         Item Feature     Updated Items       instruction
+
+                                                                                                                 write
+Offline Item Feature Extraction                                                              copy                           read diff
+Similarly, the item tower service is built on a TensorRT                                               Full-Feature Hive
+                                                                                                             Table
+model. In this case, the item images no longer require
+bounding boxes. In addition, the service takes the item ti-
+tles as inputs and outputs the projected item embeddings.               Figure 5: MIEM item embedding pre-calculation.
+titles. The annotators determine whether the query and the           • MIEM (1 emb/img): An embedding is generated for each
+products are the same, similar or dissimilar. To facilitate an-        ⟨image, text⟩ pair about a product. This is a fair compar-
+notation, we use a machine translation model to translate              ison with I2I.
+the product titles into the native languages of the annota-          • MIEM+I2I: Both models were used for image search, and
+tors, along with the original titles. “Same” indicates that the        the scores were fused as (I2I score + weight × MIEM
+query and the product are the same, while “similar” means              score), with the weight adjustable based on performance
+that they belong to the same category (e.g., both are sweaters         on the test set.
+or dresses). Since user queries may include products that
+do not exist in the Shopee product catalog, evaluating the             The retrieval scores are reported in Table 1. Compared
+number of similar items allows us to assess whether the sys-        to I2I, I2T slightly improved category accuracy with sig-
+tem includes similar products in search results when iden-          nificantly reduced recall score. This is due to the ambigu-
+tical items are not available, thereby better satisfying users’     ity of text descriptions, making it difficult to accurately de-
+search needs.                                                       scribe product textures, patterns and styles. MIEM achieved
+                                                                    slightly lower Recall@1 than I2I, but outperformed it un-
+                                                                    der Recall@5 and beyond. In the context of recall stage, the
+             Application Use and Payoff                             slight drop in Recall@1 is acceptable. MIEM (1 emb/img)
+Offline Evaluation                                                  achieved more significant improvements in Recall@5 and
+To evaluate the performance of MIEM at this stage, a dataset        beyond compared to MIEM, with comparable Recall@1 to
+based on real-world user queries collected from the Indone-         I2I. It also achieved the highest category accuracy among
+sia market was constructed, containing user query images            all comparison approaches. However, since this strategy did
+and 3 million Shopee products. Since some products may              not achieve the desired storage savings, it was not eventually
+have identical items (same physical products with different         selected for online deployment. Using both I2I and MIEM
+IDs), a same item merging strategy was employed. For each           for image search recall yielded the best results across the
+product image a, the top-K product images b were obtained           board, demonstrating that I2I and MIEM have complemen-
+using an ANN approach. An MLP model was used to deter-              tary strengths. Combining both models maximized the same
+mine whether a and b are the same item. This MLP model              item rate improvement. Based on these results, the decision
+takes the concatenation of the features of a and b as the           on deploying MIEM+I2I in the Shopee Image Search Engine
+input, and outputs the probability of them being the same           was eventually made.
+item. The training data for the MLP model was annotated by
+external annotators. Moreover, since the products the users
+                                                                    Online Evaluation
+click on are not necessarily the same items, these (query,          Since its deployment in March 2023, A/B testing was con-
+clicked item) pairs were verified by external annotators to         ducted at Shopee’s Indonesia and Brazil e-commerce mar-
+obtain accurate same item information to improve the ac-            ketplaces. In the online evaluation, four types of metrics
+curacy of evaluation. A total of 9, 000 query images were           were utilized:
+retained after removing different-item queries.                      • Same & Similar Item Recall@4: This metric determines
+   Two metrics were used in the offline evaluation:                    whether the correct results are present among the top-4
+ • Recall@k: commonly used in deep metric learning re-                 retrieved items. The determination of whether an item is
+   lated papers (Liu et al. 2021a; Sun et al. 2020; Wang et al.        considered the same or similar to the query is made by
+   2019; Cakir et al. 2019; Qian et al. 2019; Ibrahimi et al.          annotators, rather than relying on ground truth data used
+   2022) to determine whether the correct results are in-              in offline evaluation. The top-4 items were assessed be-
+   cluded in the top-K retrieved results, Recall@k directly            cause, in the Shopee App, the first page of search results
+   reflects model performance in terms of same item rate.              displays these top 4 items.
+ • Category Accuracy: evaluates whether the most common              • Top4 Irrelevant Item Rate: This metric evaluates the rate
+   category among the top 10 results matches the correct               of irrelevant items found in the top 4 search results. An-
+   product category.                                                   notators are responsible for determining the relevance of
+                                                                       items. Any items that are neither considered the same nor
+  MIEM was compared against the following models:                      similar to the query are classified as irrelevant.
+ • I2I: Image-to-image retrieval with Shopee’s image em-             • Clicks/User: This metric measures the number of items
+   bedding model, based on the ViT base. To handle the                 clicked per user within the search results. It provides in-
+   issue of multiple images per product, the KNNs of the               sights into user engagement with the presented search re-
+   images were obtained with the duplicates removed, en-               sults.
+   suring that only the most relevant image was kept as the          • Orders/User: This metric measures the number of orders
+   representative of the product.                                      placed per user within the image search. It helps assess
+ • I2T: A CLIP (Radford et al. 2021) model that performs               the effectiveness of the image search in driving user pur-
+   image-to-text retrieval. It is the output of the first step in      chases.
+   MIEM training, without the fusion encoder.                          The results are shown in Table 2. It can be observed that
+  The following variants of MIEM were involved in offline           the new I2I+MIEM solution for multi-modal image search
+evaluation:                                                         recall significantly increased clicks per user and orders per
+        Model                  Category Accuracy      Recall@1       Recall@5       Recall@10      Recall@50      Recall@100
+        I2I                                0.874         0.820          0.922            0.951          0.979           0.985
+        I2T                                0.876         0.395          0.632            0.714          0.856           0.896
+        MIEM                               0.881         0.812          0.927            0.952          0.984           0.988
+        MIEM (1 emb/img)                   0.894         0.819          0.939            0.964          0.988           0.990
+        MIEM+I2I                           0.879         0.872          0.953            0.969          0.984           0.985
+
+Table 1: The offline evaluation results on a Shopee product test set with 3 million items. The latest proposed solution of
+combining I2I with MIEM achieved the best performance.
+
+                         A/B Test         Group         Clicks/User       ∆Clicks/User      Orders/User     ∆Orders/User
+                         Period
+            Shopee       31/03/2023       I2I                     3.84                            0.0804
+            Indonesia    –10/04/2023      MIEM+I2I                4.22           +9.90%           0.0838           +4.23%
+            Shopee       20/04/2023       I2I                     4.00                            0.0364
+            Brazil       –05/05/2023      MIEM+I2I                4.24           +6.00%           0.0382           +4.95%
+
+Table 2: A/B test results of the Shopee Image Search Engine in Indonesia and Brazil. ∆ refers to the relative improvements
+achieved by MIEM+I2I compared to I2I.
+
+
+                   Same          Similar       Top 4                     retrieves an irrelevant product (the third item), mistaking the
+     Model         Item          Item          Irrelevant                cake box for the actual product which is bottled water. The
+                   Recall@4      Recall@4      Rate                      multi-modal capability of MIEM helps resolve such issues
+     I2I           50.55%        93.26%        13.58%                    by considering both text and image information, leading to
+     MIEM+I2I      53.66%        95.60%        10.71%                    more accurate and contextually relevant recommendations.
+
+Table 3: A/B test results on Same & Similar Item Recall@4                     Lessons Learned During Development,
+and Irrelevant Rate for the top 4 products from Shopee In-                        Deployment, and Maintenance
+donesia.
+                                                                         Throughout the development and deployment process, sev-
+                                                                         eral lessons were learned:
+user compared to the previous deployed solution of using                 1. Some products are challenging for MIEM to handle. Prod-
+I2I alone. Meanwhile, according to the online similarity rate               ucts with many SKUs (e.g., phone cases with different
+analysis method, we collected 3,000 queries from Shopee                     patterns) may be difficult to cover with a single embed-
+Indonesia, and evaluated the top4 same and similarity item                  ding. One potential solution is to create multiple embed-
+rates. The evaluation results in Table 3 show that MIEM                     dings for such products based on the number of SKUs or
+significantly increases the same and similarity item rates,                 the degree of variation in the product images. Methods
+whiling reducing the proportion of the top4 irrelevant prod-                like softtriple (Qian et al. 2019) are promising solutions.
+ucts. Furthermore, when compared to the image embed-                     2. In terms of deployment, achieving a balance between
+ding model, MIEM significantly reduces the storage space                    speed and accuracy requires the use of TensorRT. How-
+requirements. In particular, for the online ES index, MIEM                  ever, attention should also be paid to the pre-processing
+only requires a approximately 61.17% less storage space                     speed. In addition, the overall system outputs should be
+compared to the previously adopted I2I index.                               consist with the offline evaluation results.
+                                                                         3. In terms of model maintenance, there are a large number
+Qualitative Analysis                                                        of new products added to the Shopee database daily. The
+Figure 6 illustrates examples of the top 4 online cases. In                 previously adoped I2I may be less affected by new prod-
+the first example, the query is for Indonesian traditional at-              ucts due to its focus on image details alone. In contrast,
+tire. The I2I model mistakenly returns results for protective               MIEM, which focuses on both the semantic information
+clothing. However, after deploying MIEM, this issue is sig-                 and the images, may struggle to establish relationships
+nificantly improved, and more relevant results are obtained.                between texts and images for products not seen during
+In the second example, the query is for a body spray. The I2I               training (e.g., newly released iPhones). Regularly retrain-
+model returns results that resemble boxes of cakes. MIEM,                   ing the model can help mitigate this issue. Nevertheless,
+focusing not only on image details but also on semantic in-                 the improvement has been deemed to outweigh the main-
+formation, accurately identifies the correct product, resulting             tenance overhead incurred.
+in more precise search results. In the third case, the query
+is for a speaker. MIEM successfully delivers top 4 results                          Conclusions and Future Work
+that match the appearance of the query image. In the last                The proposed Multi-modal Item Embedding Model (MIEM)
+example, without the multi-modal approach, the I2I model                 complements Shopee’s image search by providing seman-
+ Query                           I2I Only Top4                                              MIEM + I2I Top4
+
+
+
+
+            Figure 6: Qualitative comparison of top4 search results using different queries under MIEM+I2I vs. I2I.
+
+
+tic information for both images and product texts. By con-        Cheng, Z.; Xiao, S.; Zhai, Z.; Zeng, X.; and Huang, W. 2023.
+sidering both images and text for a product and extract-          Mixer: Image to Multi-Modal Retrieval Learning for Indus-
+ing valuable information, MIEM constructs more context-           trial Application. arXiv preprint arXiv:2305.03972.
+aware feature representations for products. Compared to           Chicco, D. 2021. Siamese neural networks: An overview.
+the previously deployed single modal image search model,          Artificial Neural Networks, 73–94.
+MIEM achieves higher the recall score while requiring signif-     Devlin, J.; Chang, M.-W.; Lee, K.; and Toutanova, K. 2018.
+icantly less feature storage space compared to using Image-       BERT: Pre-training of deep bidirectional transformers for
+to-image only. The model has become an essential part of          language understanding. arXiv preprint arXiv:1810.04805.
+the Shopee Image Search Engine. Since its deployment in
+March 2023, it has help the Shopee e-commerce platform            Dosovitskiy, A.; Beyer, L.; Kolesnikov, A.; Weissenborn,
+achieve 9.90% higher clicks per user and a 4.23% higher           D.; Zhai, X.; Unterthiner, T.; Dehghani, M.; Minderer, M.;
+orders per user, thereby bringing significant benefits to its     Heigold, G.; Gelly, S.; et al. 2020. An image is worth 16x16
+businesses.                                                       words: Transformers for image recognition at scale. arXiv
+                                                                  preprint arXiv:2010.11929.
+   In subsequent research, we will explore how to enhance
+MIEM from the perspective of data privacy preservation via        Dou, Z.-Y.; Xu, Y.; Gan, Z.; Wang, J.; Wang, S.; Wang, L.;
+federated learning (Yang et al. 2020; Goebel et al. 2023) to      Zhu, C.; Zhang, P.; Yuan, L.; Peng, N.; et al. 2022. An empir-
+further improve user experience.                                  ical study of training end-to-end vision-and-language trans-
+                                                                  formers. In Proceedings of the 2022 IEEE/CVF Conference
+                                                                  on Computer Vision and Pattern Recognition (CVPR’22),
+                 Acknowledgements                                 18166–18176.
+This research/project is supported by the National Re-            Drabas, T.; and Lee, D. 2017. Learning PySpark. Packt
+search Foundation Singapore and DSO National Laborato-            Publishing Ltd.
+ries under the AI Singapore Programme (AISG Award No:             Fix, E.; and Hodges, J. L. 1989. Discriminatory anal-
+AISG2-RP-2020-019); and the RIE 2020 Advanced Manu-               ysis. Nonparametric discrimination: Consistency proper-
+facturing and Engineering (AME) Programmatic Fund (No.            ties. International Statistical Review/Revue Internationale
+A20G8b0102), Singapore.                                           de Statistique, 57(3): 238–247.
+                                                                  Goebel, R.; Yu, H.; Faltings, B.; Fan, L.; and Xiong, Z. 2023.
+                       References                                 Trustworthy Federated Learning, volume 13448. Springer,
+Cakir, F.; He, K.; Xia, X.; Kulis, B.; and Sclaroff, S. 2019.     Cham.
+Deep metric learning to rank. In Proceedings of the 2019          Gormley, C.; and Tong, Z. 2015. Elasticsearch: the definitive
+IEEE/CVF Conference on Computer Vision and Pattern                guide: a distributed real-time search and analytics engine. ”
+Recognition (CVPR’19), 1861–1870.                                 O’Reilly Media, Inc.”.
+Ibrahimi, S.; Sors, A.; de Rezende, R. S.; and Clinchant, S.      Sun, Y.; Cheng, C.; Zhang, Y.; Zhang, C.; Zheng, L.; Wang,
+2022. Learning with label noise for image retrieval by se-        Z.; and Wei, Y. 2020. Circle loss: A unified perspec-
+lecting interactions. In Proceedings of the 2022 IEEE/CVF         tive of pair similarity optimization. In Proceedings of the
+Winter Conference on Applications of Computer Vision              2020 IEEE/CVF Conference on Computer Vision and Pat-
+(WACV’22), 2181–2190.                                             tern Recognition (CVPR’20), 6398–6407.
+Li, J.; Li, D.; Savarese, S.; and Hoi, S. 2023. Blip-2:           Vanholder, H. 2016. Efficient inference with tensorrt. In
+Bootstrapping language-image pre-training with frozen im-         GPU Technology Conference, volume 1.
+age encoders and large language models. arXiv preprint            Wang, H.; Wang, Y.; Zhou, Z.; Ji, X.; Gong, D.; Zhou, J.; Li,
+arXiv:2301.12597.                                                 Z.; and Liu, W. 2018. Cosface: Large margin cosine loss for
+Li, J.; Li, D.; Xiong, C.; and Hoi, S. 2022. Blip: Boot-          deep face recognition. In CVPR, 5265–5274.
+strapping language-image pre-training for unified vision-         Wang, X.; Han, X.; Huang, W.; Dong, D.; and Scott, M. R.
+language understanding and generation. In International           2019. Multi-similarity loss with general pair weighting for
+Conference on Machine Learning, 12888–12900. PMLR.                deep metric learning. In Proceedings of the 2019 IEEE/CVF
+Li, J.; Selvaraju, R.; Gotmare, A.; Joty, S.; Xiong, C.; and      Conference on Computer Vision and Pattern Recognition
+Hoi, S. C. H. 2021. Align before fuse: Vision and language        (CVPR’19), 5022–5030.
+representation learning with momentum distillation. Ad-           Wang, X.; Zhang, H.; Huang, W.; and Scott, M. R. 2020.
+vances in neural information processing systems, 34: 9694–        Cross-batch memory for embedding learning. In Proceed-
+9705.                                                             ings of the 2020 IEEE/CVF Conference on Computer Vision
+Liu, C.; Yu, H.; Li, B.; Shen, Z.; Gao, Z.; Ren, P.; Xie, X.;     and Pattern Recognition (CVPR’20), 6388–6397.
+Cui, L.; and Miao, C. 2021a. Noise-resistant deep metric          Wang, X.; Zhao, H.; and Zhu, J. 1993. GRPC: A communi-
+learning with ranking-based instance selection. In Proceed-       cation cooperation mechanism in distributed systems. ACM
+ings of the 2021 IEEE/CVF Conference on Computer Vision           SIGOPS Operating Systems Review, 27(3): 75–86.
+and Pattern Recognition (CVPR’21), 6811–6820.
+                                                                  Yang, Q.; Liu, Y.; Cheng, Y.; Kang, Y.; Chen, T.; and Yu, H.,
+Liu, Z.; Lin, Y.; Cao, Y.; Hu, H.; Wei, Y.; Zhang, Z.; Lin,       eds. 2020. Federated Learning. Springer, Cham.
+S.; and Guo, B. 2021b. Swin Transformer: Hierarchical vi-
+sion transformer using shifted windows. In Proceedings of         Zeng, Y.; Zhang, X.; and Li, H. 2022. Multi-Grained Vision
+the 2021 IEEE/CVF International Conference on Computer            Language Pre-Training: Aligning Texts with Visual Con-
+Vision (ICCV’21), 10012–10022.                                    cepts. In Proceedings of the 39th International Conference
+                                                                  on Machine Learning (ICML’22), 25994–26009.
+Loshchilov, I.; and Hutter, F. 2019. Decoupled weight decay
+regularization. In ICLR.                                          Zhang, Y.; Pan, P.; Zheng, Y.; Zhao, K.; Zhang, Y.; Ren, X.;
+                                                                  and Jin, R. 2018. Visual search at alibaba. In Proceedings of
+Malkov, Y. A.; and Yashunin, D. A. 2018. Efficient and ro-
+                                                                  the 24th ACM SIGKDD International Conference on Knowl-
+bust approximate nearest neighbor search using hierarchical
+                                                                  edge Discovery & Data Mining (KDD’18), 993–1001.
+navigable small world graphs. IEEE Transactions on Pattern
+Analysis and Machine Intelligence, 42(4): 824–836.
+Oord, A. v. d.; Li, Y.; and Vinyals, O. 2018. Representation
+learning with contrastive predictive coding. arXiv preprint
+arXiv:1807.03748.
+Paszke, A.; Gross, S.; Massa, F.; Lerer, A.; Bradbury, J.;
+Chanan, G.; Killeen, T.; Lin, Z.; Gimelshein, N.; Antiga, L.;
+et al. 2019. Pytorch: An imperative style, high-performance
+deep learning library. Advances in Neural Information Pro-
+cessing Systems, 32.
+Qian, Q.; Shang, L.; Sun, B.; Hu, J.; Li, H.; and Jin, R. 2019.
+Softtriple loss: Deep metric learning without triplet sam-
+pling. In Proceedings of the 2019 IEEE/CVF International
+Conference on Computer Vision (ICCV’19), 6450–6458.
+Radford, A.; Kim, J. W.; Hallacy, C.; Ramesh, A.; Goh, G.;
+Agarwal, S.; Sastry, G.; Askell, A.; Mishkin, P.; Clark, J.;
+et al. 2021. Learning transferable visual models from natu-
+ral language supervision. In Proceedings of the 38th Interna-
+tional Conference on Machine Learning (ICML’21), 8748–
+8763.
+Song, L.; Pan, P.; Zhao, K.; Yang, H.; Chen, Y.; Zhang,
+Y.; Xu, Y.; and Jin, R. 2020. Large-scale training system
+for 100-million classification at alibaba. In Proceedings of
+the 26th ACM SIGKDD International Conference on Knowl-
+edge Discovery & Data Mining (KDD’20), 2909–2930.
+

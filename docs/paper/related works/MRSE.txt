@@ -1,0 +1,578 @@
+                                         MRSE: An Efficient Multi-modality Retrieval System for Large Scale E-commerce
+                                                              Hao Jiang1,3 , Haoxiang Zhang3 , Qingshan Hou2 , Chaofeng Chen1 ,
+                                                                       Weisi Lin1 * , Jingchang Zhang3 , Annan Wang1
+                                                                              1
+                                                                                  Nanyang Technological University (NTU), Singapore
+                                                                                  2
+                                                                                   National University of Singapore (NUS), Singapore
+                                                                                                 3
+                                                                                                   Shopee, Singapore
+                                                                    {jianghao907, haoxiang.z.f, houqingshancv, chaofenghust}@gmail.com,
+arXiv:2408.14968v1 [cs.IR] 27 Aug 2024
+
+
+
+
+                                                                  Abstract
+                                         Providing high-quality item recall for text queries is crucial
+                                         for developing search systems in large-scale e-commerce.
+                                         Current solutions employ Embedding-based Retrieval Sys-
+                                         tems (ERS) to embed queries and items into a low-
+                                         dimensional space. However, uni-modality ERS is overly
+                                         reliant on textual features, rendering it unreliable in com-
+                                         plex semantic contexts. Existing multi-modality ERS often
+                                         neglects individual preferences for different modalities and
+                                         fails to fully leverage their advantages. To address these
+                                         issues and enhance item retrieval performance, we pro-
+                                         pose MRSE, a Multi-modality Retrieval System for Large
+                                         Scale E-commerce. MRSE integrates text, item image, and
+                                         user preference information through lightweight mixture-of-
+                                         expert (LMoE) modules, better aligning inter-modality and
+                                         intra-modality features. MRSE also generates user portraits
+                                         on a multi-modality level, capturing user preferences across
+                                         various modalities. Additionally, we propose a novel hybrid
+                                         loss function to enhance multi-modality exploitation, ensur-
+                                         ing consistency and robustness through hard negative sam-           Figure 1: Demo of a textual query with color intention: bad
+                                         pling. We conduct extensive experiments on a large-scale in-        cases (left red rectangles) with uni-EBS, and good cases
+                                         dustrial dataset from the Shopee Search System and online           (right green rectangles) with MRSE. The first bad case
+                                         A/B testing, demonstrating the effectiveness of MRSE. The           shows a failure to capture color preference, while the sec-
+                                         system achieves over 18.9% offline relevance improvement            ond involves an incorrect match with red guitar strings.
+                                         and 3.7% online core metrics gain over Shopee’s state-of-
+                                         the-art uni-modality product understanding system.
+
+                                                               Introduction                                  adopts the n-gram method, building upon the foundation of
+                                                                                                             Word2Vec and enhancing the model’s performance, which
+                                         Within large-scale e-commerce, multiple scenarios are de-           can be involved in company-level ERS to extract textual
+                                         signed to help users discover items of interest. In the             embedding with low latency. Transformer (Vaswani et al.
+                                         search scenario, users provide textual queries, and the sys-        2017) uses attention architecture to capture higher-level se-
+                                         tem matches them to items based on their content, as il-            mantic information in natural language. While these models
+                                         lustrated in Fig.1. Traditional method (Singhal et al. 2001)        are highly effective at extracting complex textual semantics,
+                                         uses term match and statistics to build a Retrieval System          their utility in industrial contexts is constrained by signif-
+                                         (RS) based on a large-scale database. However, traditional          icant discrepancies in textual conventions and features be-
+                                         RS makes it hard to handle new and long tail items (Yin             tween user queries and item descriptions.
+                                         et al. 2012) with the same semantics but different textual
+                                         terms. Subsequently, an Embedding-based Retrieval Sys-                 To improve ERS’s capacity for handling diverse features
+                                         tem (ERS), enriched with semantic depth and operating in            and boosting efficiency, Taobao (Li et al. 2021), Amazon
+                                         high-dimensional spaces has emerged. Word2Vec (Mikolov              (Nigam et al. 2019), and JD (Zhang et al. 2020) constructed
+                                         et al. 2013) makes a high-level vector space to represent a         their two-tower ERS: the query tower is used to compute
+                                         word, Fasttext (Bojanowski et al. 2017) moves forward and           user-oriented features (textual query, behavior, etc.), while
+                                                                                                             the item tower is employed to calculate product-oriented fea-
+                                            * Corresponding author: wslin@ntu.edu.sg                         tures (item title, description, etc.). However, uni-modality
+ERS relies entirely on textual information, potentially fail-       alignment.
+ing to accurately capture user preferences and misinterpret-
+ing text data, as shown in Fig.1. Since most items in rec-                             Related Work
+ommendation systems are presented to users via images,
+the alignment between images and user queries often di-          Matching in Search
+rectly impacts the probability of clicks. To leverage this,      Search matching can be divided into term matching
+multi-modality fusion of images and text has become a new        and semantic matching. In term matching retrieval, Term
+trend. From early methods using simple weighted sums (Hi-        Frequency-Inverse Document Frequency (TF-IDF) (Ramos
+dasi et al. 2016; Liu et al. 2021) to recent approaches in-      et al. 2003) is a widely used technique to represent the im-
+volving MLP (Liang et al. 2023), self-attention mechanisms       portance of terms in a document corpus based on their fre-
+(Pan et al. 2022; Bian et al. 2023; Zhang et al. 2023a) and      quency and rarity. On the other hand, BM25 (Best Match-
+Graph Neural Networks (GNN) (Hu et al. 2023), various fu-        ing 25) (Robertson, Zaragoza et al. 2009) is a probabilistic
+sion methods have emerged, yet they all neglect user pref-       retrieval model that improves upon TF-IDF by considering
+erences for different modality. For instance, a user query-      document length normalization and term saturation effects,
+ing for clothes may focus more on images, whereas a user         resulting in better retrieval performance, particularly for
+searching for mops may be more interested in functional de-      longer documents. With the booming growth in deep NLP
+scriptions. Constructing effective multimodal retrieval sys-     techniques, several neural models have been proposed to
+tems that capture the relationship between text queries and      tackle the semantic gap and long tail problems raised by tra-
+image modalities, as well as individual user preferences         ditional term matching during the last few years. Word2Vec
+for different modalities, remains a significant challenge in     (Mikolov et al. 2013), FastText (Bojanowski et al. 2017),
+search systems.                                                  and BERT (Vaswani et al. 2017) are commonly applied in
+   This paper introduces MRSE, an efficient Multi-modality       semantic matching, employing neural network architectures
+Retrieval System for Large Scale E-commerce. The train-          to generate dense vector representations of words or tokens,
+ing of MRSE involves two stages. The first stage has             facilitating more accurate and general matching in informa-
+three LMoE modules: Visual-Bert (VBert) to extract inter-        tion retrieval.
+modality between image and text, Light-Bert to capture text
+modality, and Fasttext-Attention (FtAtt) for intra-modality      Multi-modality Modeling
+of historical textual features, while the second stage uti-      The exploration of multimodal modeling techniques has
+lizes DSSM to fuse multi-modality representations. In par-       seen substantial growth over recent years. In the Vision and
+ticular, to capture individual modality preferences, we fur-     Language domain, Pixel-BERT (Huang et al. 2020) connects
+ther leverage LMoE modules to create multimodal histori-         pixel and language modalities within image-text pairs, and
+cal behavior embeddings, allowing for the adjustment of re-      UNITER (Chen et al. 2020) improves multimodal alignment
+trieval structures according to modality preferences. More-      through conditional masking strategies. Similarly, in the
+over, triplet loss (Schroff, Kalenichenko, and Philbin 2015)     context of recommendation systems, diverse fusion methods
+and softmax cross-entropy loss (Li et al. 2021) are com-         such as weighted sums (Hidasi et al. 2016; Liu et al. 2021),
+monly used in training the ERS model, while it’s hard and        MLP (Liang et al. 2023; Zhao et al. 2023), self-attention
+resource-intensive to achieve global convergence and align       mechanisms (Pan et al. 2022; Bian et al. 2023; Zhang et al.
+multi-modality features during training with billions of data.   2023a) and GNN (Hu et al. 2023) have been introduced
+We further design a hybrid training approach, combining          to enhance modality alignment. However, these approaches
+in-batch softmax cross-entropy loss and triplet loss with        focus solely on inter-modality and intra-modality features,
+hard-easy negative sampling, to align multi-modality fea-        overlooking the modeling of user modality preferences.
+tures more consistently.
+   The efficacy of MRSE has been validated through online        Embedding-based Retrieval in Industry
+A/B testing and rigorous analysis of a large-scale industrial    With billions of requests daily in a real-world environment,
+dataset from Shopee, one of the largest e-commerce plat-         ERS often utilizes Approximate Nearest Neighbor (ANN)
+forms in Southeast Asia. As a result of its demonstrated ef-     algorithms, such as HNSW (Malkov and Yashunin 2018), to
+fectiveness, MRSE has been launched as a base model in           efficiently retrieve relevant products based on their embed-
+the overall platform of Shopee. The primary contributions        dings in low latency. To further reduce latency, ERS uses a
+of this work are outlined as follows.                            two-tower architecture to perform late fusion of user query
+                                                                 and product information and employs Deep Structured Se-
+ • We propose MRSE to utilize query and item image               mantic Models (DSSM) (Huang et al. 2013) to reduce di-
+   modalities while capturing user preferences across differ-    mensionality. In this paper, we first train the two-tower struc-
+   ent modalities, delivering an enhanced user-experience-       ture of the LMoE modules and then utilize a DSSM archi-
+   oriented multimodal retrieval.                                tecture to train the feature fusion model, aiming to optimally
+ • VBert, FtAtt, and Light-Bert are introduced for better        balance performance and efficiency.
+   inter-modality and intra-modality leveraging.
+ • A hybrid loss combining in batch softmax cross-entropy                              Methodology
+   loss and triplet loss with customized hard-easy nega-         This section introduces MRSE, a Multi-modality
+   tive sampling to promote more consistent multi-modality       Embedding-based Retrieval System at Shopee. We be-
+            VBert                                                                                          Softmax Cross
+                                                                                        Triplet Loss
+                                                                                                           Entropy Loss
+                                                                                                         In Batch & Easy
+                                                                                         Hard Negative
+          Light Bert                                                                                         Negative
+
+
+            FtAtt
+
+                                            DSSM                                                                                                     DSSM
+                                                                                             Item         Query
+                                                                                            Tower         Tower
+                                            Concat                                                                                                  Concat
+
+
+
+
+                           MLP                                                                                                    MLP
+                                                                                   Q
+                                         Mean Pooling          Dot Attention                                                                      Mean Pooling         Mean Pooling
+                          Concat                                                                                                 Concat
+                                                                   K          V
+                       Self Attention     Self Attention            MLP            Mean Pooling                               Self Attention      Self Attention
+
+
+
+                            ...                ...                      ...                                                        ...                   ...                   ...
+          Adaptor                                                                                                Adaptor
+
+           VIT-L         L-BERT             L-BERT               Fasttext                                         VIT-L         L-BERT              L-BERT                  Fasttext
+
+
+
+                          Concat
+
+
+
+                            Item        Preprocessed       Item Title         History Clicked                                             Preprocessed             Query             History Clicked
+         Item Image                                                                                           History Image
+                           Category      Item Title         N-gram            Query N-gram                                                   Query                 N-gram             Item N-gram
+
+
+
+Figure 2: Architecture of MRSE: The multi-modality extraction comprises three LMoE modules, color-coded as shown in the
+top left corner. In the multi-modality fusion stage, φ(T) and ψ(Q) represent the final representations for the item tower and
+query tower, respectively. Key differences between the query and item towers are highlighted with a gray background.
+
+
+gin by discussing the multi-modal input features and                                                     φ(·) and ψ(·) are encoders for item and query.
+presenting the model architecture. Subsequently, we
+elaborate on the MRSE training process with a hybrid loss.                                               Satge 1: Multi-modality Modules - LMoE
+                                                                                                         To address the limitations of the text uni-modality and en-
+Overall architecture                                                                                     hance the robustness of ERS in large-scale scenarios, we
+The general structure of MRSE is illustrated in Fig.2, a                                                 propose a lightweight mixture-of-experts (LMoE) approach.
+two-tower structure that operates in two training stages.                                                This approach incorporates three novel expert modules de-
+The query tower takes into account the user’s textual query                                              signed to efficiently process and integrate information from
+Q = {q1 , . . . , qu }, where qu denotes a query q searched by                                           various modalities. By utilizing these multimodal experts,
+user u. Each q is associated with a corresponding sequence                                               our method aims to improve the overall performance and re-
+of historically clicked items Hq = {i1 , . . . , ih } and their                                          liability of EBS in real-world e-commerce applications.
+respective clicked item images Qimg = {v1 , . . . , vh }. The                                            Image Modality - VBert The architecture of VBert, illus-
+item tower uses the item title I = {i1 , . . . , in }, where n                                           trated in Fig.2, operates on both query and item towers on
+denotes the item pool count, its associated item category                                                MRSE and consists of two major levels. VBert has query
+Ic = {c1 , . . . , cn }, and the corresponding product image                                             and item towers shared with the same structure but different
+Iimg = {v1 , . . . , vn } as input. Additionally, similar to the                                         weights. The query tower extracts a representation embed-
+query tower, we incorporate item history information, which                                              ding from the user portrait (including user query and user
+consists of items clicked by historical queries. For each item                                           behavior), while the item tower derives embeddings at the
+in , we represent this information as Hi = {q1 , . . . , qh },                                           item level (item title, item image, and item category).
+serving as a sequence input to the item tower.                                                              The first level of VBert employs a pre-trained VIT-L
+   We now define the task. Given the item and query features                                             model (Dosovitskiy et al. 2020) as the backbone for im-
+Q, Hq , Qimg , I, Ic , Hi , and Iimg , we aim to return a set of                                         age encoding. We introduce an adaptor module (Chen et al.
+relevant items I. We use Q to represent the query feature                                                2022), consisting of two dense layers, to adapt the VIT-L
+set (Q, Hq , Qimg ) and T to represent the item feature set                                              model to our specific domain. The VIT-L-Adaptor is fine-
+(I, Ic , Hi , Iimg ). The query-driven process can be formally                                           tuned using item image-image pair from Shopee Image
+defined as:                                                                                              Search, while keeping the VIT-L model frozen. The adaptor
+                      zQ2I = S(φ(T), ψ(Q)),                  (1)                                         weights are shared between the query and item towers. In the
+where S(·) denotes the cosine similarity scoring function,                                               second level, we freeze the fine-tuned VIT-L-Adaptor and
+train a lightweight BERT model (Devlin et al. 2018) with
+two layers and a 128-dimensional output for both towers.                                      contrastive                     margin
+   Given the independent semantic in token level on e-
+commerce, we use token output followed by a customized                            1
+attention layer as the final representation from Light-Bert,
+                                                                                                      0                 0.1            0.6
+
+                                                                                          1                   0.2                                0.5
+rather than the original pooled output.                                    N                                                                           L
+                                                                                                  1                     0.1            0.6
+    z l = Attention(z l−1 + FFN(MultiHead(z l−1 ))),         (2)                      0                   1   0.2                                0.5
+
+          FFN(x) = max(0, xW1 + b1 )W2 + b2 ,                (3)
+                                                                                              N                     e                        h
+                                n
+                             1X l
+                   o(z l ) =      z,                         (4)
+                             n i=1 i
+                                                                    Figure 3: Illustration of the proposed Hybrid Loss. The blue,
+where z l is the token output from the last layer l of Light-       green, and red cubes represent the contrast matrix, easy neg-
+Bert, and o(z l ) denotes the final output of Light-Bert. For the   atives, and hard negatives, respectively. N denotes the batch
+query tower, the initial input z 0 = (Q), while for the item        size, e and h are the number of easy negatives and hard neg-
+tower z 0 = (I, Ic ). In the final embedding layer, we con-         atives.
+catenate the textual and image embeddings and apply two
+dense layers to capture inter-modality.
+Text Modality - FtAtt and light Bert The architecture of            the users’ historical preferences on item-query pairs and pro-
+FtAtt, depicted in Fig.2, consists of two levels. In the first      viding complementary information for intra-modality rep-
+level, both the query and item towers share a common tradi-         resentation. This multi-faceted input allows the DSSM to
+tional FastText model (Bojanowski et al. 2017). In the sec-         leverage both current and historical information, potentially
+ond level, the query tower applies average pooling on the to-       leading to more accurate recommendations. The normaliza-
+ken embeddings obtained from the FastText model. On the             tion step (Norm) ensures that the final representation z is
+other hand, the item tower introduces a customized attention        properly scaled, facilitating stable training and inference.
+layer to capture the importance of tokens in the item title:
+                                                                    Hybrid Loss Function
+             fQ,K (x) = (r ⊙ x)WQ,K + bQ,K ,                 (5)    ERS often struggles to simultaneously distinguish highly
+                                 n                                  relevant items from both completely irrelevant ones and
+                             1X                                     somewhat related but non-competitive items. This is particu-
+             fV (x) = (r ⊙         xi )WV + bV ,             (6)
+                             n i=1                                  larly problematic for long-tail queries, where false positives
+                                                                    can significantly burden subsequent processing stages.
+           d(x) = softmax(fQ (x)fK (x)T )fV (x),             (7)       Traditional two-tower retrieval models often employ the
+where r is a vector of independent Bernoulli random vari-           triplet loss function as the training objective. The triplet loss
+ables (ri ∼ Bernoulli(p) for dropout with drop rate p),             can be defined as:
+WQ,K , WV and bQ,K , bV are the weight matrices and                   L(∇) = max(0, ϵ + S(i− , ψ(Q)) − S(i+ , ψ(Q))),                                       (9)
+bias vectors for the respective transformations, d(x) denotes
+                                                                            +         −
+the final output of FtAtt’s item tower. For the Light-BERT          where i and i denote the final item representations from
+model, we employ a two-layer BERT architecture, mirror-             the item tower of the model. The positive pair (i+ , ψ(Q))
+ing the same Bert-liked structure used in VBert.                    corresponds to a query-click item pair, while the negative
+                                                                    pair (i− , ψ(Q)) is formed by the query and a randomly se-
+Stage 2: Multi-modality Fusion - DSSM                               lected item. However, the triplet loss often suffers from slow
+As seen in Fig.2, for both query and item towers, we con-           convergence and difficulty in reaching the global minimum.
+catenate multiple embeddings as input to the DSSM. These            Softmax Cross-Entropy Loss with mix sampling. Build-
+embeddings represented as ε in Eq.8, include output embed-          ing upon Yang et al.’s work (Yang et al. 2020), we employ
+dings εvb , εlb , εf a and εh from VBert, Light-BERT, FtAtt,        a mix negative sampling softmax cross-entropy loss (MN-
+and an auxiliary embedding derived from applying FtAtt to           SCE), defined as:
+the query history (Hq ) and item history (Hi ) respectively.
+                                                                                               exp(S(i+ , ψ(Q))/τ )
+                                                                        ŷ(i+ |φ(Q)) = P                     ′
+                                                                                                                         ,                                 (10)
+   k = Norm(concat(ε . . .)W ), W ∈ R      {D,D−128}×d
+                                                         .   (8)                            i′ ∈I∪Ie exp(S(i , ψ(Q))/τ )
+                                                                                                     X
+  In Eq.8, the weight matrix W has a variable input di-                               Lmix (∇) = −      yi log(ŷi ),                                      (11)
+mension that depends on whether history information is                                                              i∈I
+available. When history is present, W ∈ RD×d ; otherwise,           where Ie is globally random samples from deduplicate item
+W ∈ R(D−128)×d , reflecting the reduced input dimension.            pool, I is the item in current batch, τ is a temperature pa-
+  The inclusion of query and item history embeddings as             rameter that controls the smoothness of the overall fitted dis-
+additional features serves two crucial purposes: capturing          tribution of the training data. As τ approaches 0, the fitted
+distribution becomes closer to a one-hot distribution, indi-
+                                                                                                                                          Retrival
+cating that the model completely fits the supervisory sig-                 Clicked image       Attention         Image Index
+                                                                                                                               Yes
+nals. Conversely, as τ approaches infinity, the fitted distri-
+bution resembles a uniform distribution. The in-batch soft-
+                                                                                               Attention            MeSS             Cached
+max cross-entropy loss significantly accelerates the training              Clicked items
+                                                                                                                 Item Tower    No     Item
+process. The incorporation of Ie helps alleviate the selec-
+tion bias inherent in implicit user feedback and mitigates the
+                                                                                                                               Yes
+high resource requirements associated with the in-batch soft-               Query
+                                                                                             Cached
+                                                                                             Query
+                                                                                                           Yes
+                                                                                                                 Item Index
+max cross-entropy loss, as the resource consumption grows           User                         No
+quadratically with the batch size.                                                           MeSS                 Item Pool
+                                                                                           Query Tower
+Hard-Negative Triplet Loss While MNSCE addresses
+the long-tail problem to some extent, it overlooks the chal-
+lenge of hard negatives and fails to sufficiently encourage          Figure 4: Overview of MRSE System Architecture
+the model to utilize diverse information from various modal-
+ities. To mitigate the hard negative problem and reduce the
+burden on subsequent stages (such as relevance scoring and       with inferences performed by country. To reduce online cal-
+ranking), we propose a point-to-point hard-negative sam-         culation pressure for user queries, we collect queries from
+pling triplet loss (HNST) that leverages filtered query-item     the previous week, pre-calculate the query embeddings, and
+pairs with low relevance scores obtained from the relevance      store them in a query cache. The online query hit rate
+logs. By doing so, we can tackle the hard negative problem       achieves 90% for each country. For item representation,
+without relying on extensive human-labeled data while si-        the Embed-Producer pre-calculates the item embeddings to
+multaneously encouraging the model to distinguish between        build the MRSE item index, and triggers real-time calcula-
+subtly different items across modalities. The hard-negative      tions for new items or when a seller modifies the information
+triplet loss is defined as:                                      of a specific item. The updated embeddings are added to the
+                                                                 product index in real time, resulting in an online index hit
+                                                                 rate of 99.9% for each country.
+Lhard (∇) = max(0, ϵ + S(i−                     +
+                              hard , ψ(Q)) − S(i , ψ(Q))),
+                                                       (12)      MRSE I2I
+where i−hard  represents  the  representation of  the hard-      We use fine-tuned VIT-L-Adaptor as the image encoder ν(·)
+negative item selected from the low-relevance logs.              to build the MRSE image index. We utilize Apache Kafka
+Hybrid Loss The hybrid loss function combines a                  (Kreps et al. 2011) to stream the user behavior data ‘user
+weighted sum of MNSCE and HNST, as illustrated in Fig.3.         clicked items’ R and ‘user clicked images’ Uimg in the
+The hybrid loss function is defined as:                          cache. When a user searches a query Q, the cached multi-
+                                                                 modality representations under the same query will be trig-
+         Lhybrid (∇) = αLmix (∇) + βLhard (∇),           (13)    gered and sent to the relevant index. The MRSE I2I can be
+                                                                 mathematically described as:
+where α and β are two hyperparameters that adjust the
+importance of sample difficulty. As seen in Fig.5(a), hy-                       zI2I = S(F(φ(R), ψ(Q)), φ(T))∪
+brid loss effectively accelerates model convergence and en-                      S(F(ν(Uimg ), ψ(Q)), ν(Iimg )),                                (14)
+hances overall model performance. The hybrid approach                                                                T
+thus provides a comprehensive solution to leverage differ-                    F(a, b) = softmax((b(a∥b) )(a∥b)),                                (15)
+ent modalities and sample difficulties for EBS in large-scale
+                                                                 where ν(·) represents the image encoder VIT-L-Adaptor,
+E-commerce.
+                                                                 F(·) denotes a customized attention function, a represents
+                                                                 the ‘Query’, a∥b represents the ‘Key’ and ‘Value’, and ∥
+          MRSE Online Implementation                             is used to denote the concatenation operation. To strike a
+Fig.4 illustrates the online implementation of MRSE. To          balance between efficiency and sufficient behavior informa-
+capture users’ preferences for different modalities and en-      tion, we truncate the number of cached click behaviors by
+hance the controllability of the diversity and fairness of re-   20. Table.1 demonstrates that incorporating MRSE I2I as
+trieval, inspired by (Zhang et al. 2023b), we introduce a ‘Di-   an auxiliary component significantly improves recommen-
+vide and Conquer’ approach to better utilize each modal-         dation performance. It captures user preferences across var-
+ity. This approach incorporates two specialized components:      ious modalities, delivering an enhanced user-oriented multi-
+Query-to-Item (Q2I) and Item-to-Item (I2I). The design con-      modal retrieval experience.
+structs a dual-item pool index and three recall queues.
+                                                                 MRSE Online Latency
+MRSE Q2I                                                         The query embedding is computed within 10 ms at the 99th
+MRSE Q2I is deployed in production at the retrieval stage,       percentile on CPU at Shopee scale, while the document em-
+operating on products in real time. Model inferences are         bedding is computed within 12 ms. For online indexing, we
+computed on a cloud of machines called Embed-Producer,           utilize Vespa to index the item representations by country.
+                              r
+ Methods            Recall@Kw      Recall@Kur     Rele@Kw p
+                                                                              0.6                                                                     0.80                            Overall Performance
+                                                                                                                                                                                      Within Retrieval (Hard Negative)
+ Fasttext              36.7%          42.9%         27.6%                     0.5
+                                                                                                                                                      0.75                            Within Retrieval (Easy Negative)
+                                                                                                                                                      0.70
+ Transformer           46.8%          54.6%         31.9%                                                                                             0.65
+
+
+
+
+                                                                 Recall@500
+
+
+
+
+                                                                                                                                         Recall@500
+                                                                              0.4
+ DSSM-α                54.5%          68.6%         37.9%                                                                                             0.60
+ Que2Search            63.7%          79.1%         45.8%                     0.3                                                                     0.55
+
+                       68.2%          83.2%         48.6%                                                                                             0.50
+ MRSE Q2I                                                                     0.2                                              hybrid
+                     (+25.6%)       (+21.3%)      (+28.2%)                                                                     softmax
+                                                                                                                               triplet
+                                                                                                                                                      0.45
+
+ MRSE (Q+I)2I         73.4%           86.5%        50.4%                      0.1
+                                                                                    0   50000   100000
+                                                                                                         Step
+                                                                                                             150000   200000    250000                       0   10   20   30       40
+                                                                                                                                                                            Ratio of to
+                                                                                                                                                                                           50        60       70
+
+                     (+34.7%)       (+26.0%)      (+32.9%)
+                                                                                                 (a)                                                                       (b)
+Table 1: Comparison with the baseline DSSM-α and mul-
+tiple baselines on a large-scale industrial offline dataset.     Figure 5: (a) Convergence curves of Recall@500 for VBert
+We implemented Que2Search as a baseline by incorporat-           using triplet loss, softmax loss, and our proposed hybrid
+ing its across-modality attention fusion method and curricu-     loss. (b) The retrieval performance when training MRSE
+lum learning loss into our LMoE framework. (In our experi-       with different ratios of hard negatives rate (β/α). We con-
+ments, we focus on recalled top-K=500 to align with online       duct two more evaluation datasets with query and its item
+performance.)                                                    pool, consisting with the easy negative (randomly picked)
+                                                                 and hard negative (from the relevance stage).
+
+                      Experiments
+Here we introduce the dataset, configuration of MRSE, eval-         For hybrid loss on VBert and DSSM, we used τ = 0.1
+uation metrics, experimental result, and ablation study to       and α = 1 on MRSE, and margin = 0.15 and β = 30 on
+demonstrate the effectiveness of MRSE in the search sys-         HNST. We used a learning rate of 1e − 4 with a batch size
+tem.                                                             of 256 and Adam optimizer on VIT-L-Adaptor, VBert, and
+                                                                 Light-Bert, and a batch size of 1024 on FtAtt and DSSM.
+Dataset
+                                                                 Evaluation Metrics
+We collect user click history data as MRSE training data
+from the traffic log for each country, spanning a period of 1    Offline Metrics We use Recall@K to evaluate the offline
+week. For countries with relatively low traffic, such as Sin-    performance of MRSE. Specifically, given a query qu , the
+gapore, we extend the data collection to 2 weeks. The col-       items clicked or purchased for query qu are considered as the
+lected data is filtered to remove spam users, resulting in a     target set It = {i1 , . . . , iN }, while the top-K items returned
+training dataset size that varies from 2k million to 2 billion   by the model constitute the retrieval set I = {i1 , . . . , iK }.
+clicks, depending on the country. To evaluate the model per-     Recall@Kq is defined as
+formance, we collect query-level data along with the corre-                                           PK
+sponding clicked items by country. The size of the query set                                                 ii ∈ It
+                                                                                 Recall@Kq = i=1                     .         (16)
+ranges from 2 million to 10 million, and the item pool size                                                 N
+varies from 600k to 2 million, based on the country. For im-                          r
+                                                                 We introduce Recall@Kw                          p
+                                                                                        , Recall@Kur , and Rele@Kw (de-
+age training data of VIT-L-Adaptor, we aggregate user click      tails in appendix).
+history from the image search scenario traffic log across all
+countries for a duration of 1 week. This is possible because     Online Metrics We introduce Impression (IMP), Click-
+image-to-image retrieval is robust across countries with dif-    Through Rate (CTR), and Gross Merchandise Volume
+ferent languages, allowing us to train a single image model      (GMV) (details in appendix).
+to serve all countries.
+                                                                 Overall Performance
+Configuration of MRSE                                            To evaluate the effectiveness of MRSE, we conduct
+For the image modality extractor in VBert, the VIT-L-            a comprehensive comparison against several proven-in-
+Adaptor employs two dense layers as an adapter, reducing         product approaches: Fasttext, Transformer, DSSM-α, and
+the output dimension to 128. For the text modality extractor     Que2Search (Liu et al. 2021). To the best of our knowledge,
+in VBert and Light-Bert, we utilize a Bert-like structure with   Que2Search is the state-of-the-art multi-modality model
+2 layers and output with 128 dimensions for both the item        for industrial search systems. Specifically, DSSM-α is our
+and query towers. SentencePiece (SPM) tokenizer is trained       previous EBS, which utilizes Transformer and Fasttext as
+with a vocabulary size of 30k, and truncation is applied with    LMoE and DSSM as the decoder.
+a length of 16 for the query tower and 64 for the item tower        Table.1 demonstrates the superior performance of MRSE
+for the text modality extractor in VBert and Light-Bert. In      compared across multiple baselines. Specifically, MRSE
+the FtAtt model, we set the n-gram tokenizer range from 2        Q2I achieves substantial improvements over DSSM-α, in-
+to 4 and the output dimension to 256, which is then reduced      dicating its ability to retrieve more relevant items within the
+to 128 using a customized attention mechanism. The DSSM          same recalled item set. Furthermore, MRSE (Q+I)2I shows
+consists of two dense layers, reducing the multi-modality        even greater improvements of 34.7%, 26.0%, and 32.9% on
+representations to 128 for both the item and query towers.       these metrics. A visual comparison between MRSE (Q+I)2I
+                                                         p
+          Technique                 Recall@K      Rele@Kw                  Tower       LMoE         Importance Score
+         SPM feature                  57.6%        38.6%                   Query     Light-Bert          0.594
+  SPM feature + n-gram feature        60.1%        41.6%                   Query       FtAtt             0.637
+     Above + image feature            63.3%        44.7%                   Query       VBert             0.613
+    Above + category feature          63.9%        45.2%                    Item     Light-Bert          0.585
+    Above + history feature           68.2%        48.6%                    Item       FtAtt             0.536
+ Above + user behavior feature       73.4%         50.4%                    Item       VBert             0.682
+Table 2: Ablation study of MRSE: Each modality con-                         Table 3: LMoE importance of MRSE.
+tributes independent gains. Absent modalities are repre-
+sented by zero values.
+                                                                              Model                IMP      CTR      GMV
+                                                                       Shopee Search on Ads        3.7%     3.5%     3.2%
+and DSSM-α is illustrated in Fig.1. This demonstrates that
+                                                                           Table 4: Online A/Btest result of MRSE.
+incorporating multi-modal user behavior enables MRSE to
+retrieve items based on different modalities, thus adapting
+to diverse user preferences for various search products. No-
+tably, both MRSE Q2I and MRSE (Q+I)2I surpass the per-           of 0.682, highlighting the essential role of image features
+formance of Que2Search, indicating that MRSE can better          in large-scale e-commerce retrieval. Light-Bert and FtAtt
+assign and leverage inter and intra modalities information.      also make significant contributions with scores of 0.585 and
+                                                                 0.536, respectively, suggesting that the item tower relies on
+Ablation Study                                                   deeper LMoE modules for richer semantic information.
+To evaluate the effectiveness of different modalities
+                                                                 Hybrid Loss Analysis
+on MRSE, we conduct an ablation study focusing on
+                           p                                     We analyze the performance of MRSE with different ratios
+Recall@K and Rele@Kw          (K = 500). Table.2 illustrates
+the progressive improvements as different features are in-       of β to α. As shown in Fig.5, as the ratio increases, MRSE
+corporated. MRSE using only SPM and n-gram features              gradually improves its ability to distinguish hard negatives.
+achieves a significant improvement on Recall to 60.1% and        However, this comes at the cost of diminishing performance
+Relevance to 41.6%. A similar impact comes from image            on easy negatives. Up to a certain ratio, MRSE effectively
+features, which we apply in VBert. The inclusion of category     leverages information from both easy and hard negatives.
+features further improves Recall to 63.9% and Relevance to       Beyond this point, the excessive focus on difficult samples
+45.2%. Incorporating history features yields a significant im-   leads to a decline in overall performance.
+provement, with Recall reaching 68.2% and Relevance im-
+proving to 48.6%. Finally, the addition of user behavior fea-    Online A/Btest
+tures results in the best performance, with Recall at 73.4%
+and Relevance at 50.4%.                                          To assess the real-world impact of MRSE, we conduct an on-
+                                                                 line A/B test on the Shopee platform. Table.4 presents the re-
+   These results demonstrate that while pure textual fea-
+                                                                 sults, demonstrating improvements of 3.7%, 3.5%, and 3.2%
+tures (SPM and n-gram) provide a strong foundation, the
+                                                                 in IMP, CTR, and GMV, respectively, compared to the exist-
+addition of image, categorical, history, and behavioral infor-
+                                                                 ing Shopee Search on Ads system. Given Shopee Search’s
+mation substantially enhances the model’s capabilities. No-
+                                                                 daily volume of billions of transactions, a 3.2% improve-
+tably, the integration of history and user behavior features
+                                                                 ment in GMV translates to tens of millions in additional rev-
+not only boosts performance (Recall) but also improves the
+                                                                 enue. This substantial increase demonstrates MRSE’s effec-
+model’s robustness and consistency (Relevance) with sub-
+                                                                 tiveness in enhancing both the search experience and driving
+sequent search stages, highlighting the importance of multi-
+                                                                 business success.
+modal approaches in e-commerce retrieval systems.
+
+Importance of submodels                                                                  Conclusion
+To evaluate the importance and cooperation of each LMoE          In this paper, we have presented MRSE, a multi-modality
+modules, we randomly collect 100k queries and items and          embedding-based retrieval system for enhancing search per-
+calculate the cosine similarity between the representations of   formance in large-scale e-commerce. MRSE addresses chal-
+each modules and the final representations for the item and      lenges of intra and inter modality leveraging in real world
+query towers of MRSE, respectively. As shown in Table.3,         through LMoE modules (VBert, FtAtt, Light-Bert) with a
+FtAtt has the highest importance score of 0.637 on the           hybrid loss approach. The ‘Divide and Conquer’ strategy al-
+query tower, followed by VBert at 0.613 and Light-Bert at        lows us to extract modality preferences from users’ histori-
+0.594. This indicates that n-gram features can handle most       cal behavior, ensuring that the final retrieval truly capitalizes
+query cases due to the low semantic knowledge within user        on the multi-modality. Comprehensive experiments demon-
+queries, while VBert and Light-Bert provide supplemen-           strated MRSE’s superiority over baselines, with significant
+tary information for user behavior and intent. On the item       offline improvements and online gains in key metrics (IMP,
+tower, VBert contributes the most with an importance score       CTR, GMV). The successful deployment of MRSE as a base
+model in Shopee underscores its effectiveness. We also in-         in taobao search. In Proceedings of the 27th ACM SIGKDD
+troduce the online architecture and deployment scheme of           Conference on Knowledge Discovery & Data Mining, 3181–
+our search system to promote community development. In-            3189.
+dustrial multi-modal ERS is still in its early stages. In future   Liang, J.; Zhao, X.; Li, M.; Zhang, Z.; Wang, W.; Liu, H.;
+work, we plan to incorporate user temporal multi-modal in-         and Liu, Z. 2023. Mmmlp: Multi-modal multilayer percep-
+formation into the search system, such as long-term add-to-        tron for sequential recommendations. In Proceedings of the
+cart and order history, to further enhance ERS performance.        ACM Web Conference 2023, 1109–1117.
+                        References                                 Liu, Y.; Rangadurai, K.; He, Y.; Malreddy, S.; Gui, X.; Liu,
+                                                                   X.; and Borisyuk, F. 2021. Que2Search: fast and accurate
+Bian, S.; Pan, X.; Zhao, W. X.; Wang, J.; Wang, C.; and Wen,       query and document understanding for search at Facebook.
+J.-R. 2023. Multi-modal mixture of experts represetation           In Proceedings of the 27th ACM SIGKDD Conference on
+learning for sequential recommendation. In Proceedings of          Knowledge Discovery & Data Mining, 3376–3384.
+the 32nd ACM International Conference on Information and
+Knowledge Management, 110–119.                                     Malkov, Y. A.; and Yashunin, D. A. 2018. Efficient and ro-
+                                                                   bust approximate nearest neighbor search using hierarchical
+Bojanowski, P.; Grave, E.; Joulin, A.; and Mikolov, T. 2017.
+                                                                   navigable small world graphs. IEEE transactions on pattern
+Enriching word vectors with subword information. Trans-
+                                                                   analysis and machine intelligence, 42(4): 824–836.
+actions of the association for computational linguistics, 5:
+135–146.                                                           Mikolov, T.; Chen, K.; Corrado, G.; and Dean, J. 2013. Ef-
+Chen, Y.-C.; Li, L.; Yu, L.; El Kholy, A.; Ahmed, F.; Gan,         ficient estimation of word representations in vector space.
+Z.; Cheng, Y.; and Liu, J. 2020. Uniter: Universal image-text      arXiv preprint arXiv:1301.3781.
+representation learning. In European conference on com-            Nigam, P.; Song, Y.; Mohan, V.; Lakshman, V.; Ding, W.;
+puter vision, 104–120. Springer.                                   Shingavi, A.; Teo, C. H.; Gu, H.; and Yin, B. 2019. Semantic
+Chen, Z.; Duan, Y.; Wang, W.; He, J.; Lu, T.; Dai, J.; and         product search. In Proceedings of the 25th ACM SIGKDD
+Qiao, Y. 2022. Vision transformer adapter for dense predic-        International Conference on Knowledge Discovery & Data
+tions. arXiv preprint arXiv:2205.08534.                            Mining, 2876–2885.
+Devlin, J.; Chang, M.-W.; Lee, K.; and Toutanova, K. 2018.         Pan, X.; Chen, Y.; Tian, C.; Lin, Z.; Wang, J.; Hu, H.; and
+Bert: Pre-training of deep bidirectional transformers for lan-     Zhao, W. X. 2022. Multimodal meta-learning for cold-start
+guage understanding. arXiv preprint arXiv:1810.04805.              sequential recommendation. In Proceedings of the 31st ACM
+Dosovitskiy, A.; Beyer, L.; Kolesnikov, A.; Weissenborn,           international conference on information & knowledge man-
+D.; Zhai, X.; Unterthiner, T.; Dehghani, M.; Minderer, M.;         agement, 3421–3430.
+Heigold, G.; Gelly, S.; et al. 2020. An image is worth 16x16       Ramos, J.; et al. 2003. Using tf-idf to determine word rele-
+words: Transformers for image recognition at scale. arXiv          vance in document queries. In Proceedings of the first in-
+preprint arXiv:2010.11929.                                         structional conference on machine learning, volume 242,
+Hidasi, B.; Quadrana, M.; Karatzoglou, A.; and Tikk, D.            29–48. Citeseer.
+2016. Parallel recurrent neural network architectures for          Robertson, S.; Zaragoza, H.; et al. 2009. The probabilistic
+feature-rich session-based recommendations. In Proceed-            relevance framework: BM25 and beyond. Foundations and
+ings of the 10th ACM conference on recommender systems,            Trends® in Information Retrieval, 3(4): 333–389.
+241–248.
+                                                                   Schroff, F.; Kalenichenko, D.; and Philbin, J. 2015. Facenet:
+Hu, H.; Guo, W.; Liu, Y.; and Kan, M.-Y. 2023. Adaptive            A unified embedding for face recognition and clustering. In
+multi-modalities fusion in sequential recommendation sys-          Proceedings of the IEEE conference on computer vision and
+tems. In Proceedings of the 32nd ACM International Con-            pattern recognition, 815–823.
+ference on Information and Knowledge Management, 843–
+853.                                                               Singhal, A.; et al. 2001. Modern information retrieval: A
+Huang, P.-S.; He, X.; Gao, J.; Deng, L.; Acero, A.; and Heck,      brief overview. IEEE Data Eng. Bull., 24(4): 35–43.
+L. 2013. Learning deep structured semantic models for web          Vaswani, A.; Shazeer, N.; Parmar, N.; Uszkoreit, J.; Jones,
+search using clickthrough data. In Proceedings of the 22nd         L.; Gomez, A. N.; Kaiser, Ł.; and Polosukhin, I. 2017. At-
+ACM international conference on Information & Knowledge            tention is all you need. Advances in neural information pro-
+Management, 2333–2338.                                             cessing systems, 30.
+Huang, Z.; Zeng, Z.; Liu, B.; Fu, D.; and Fu, J. 2020. Pixel-      Yang, J.; Yi, X.; Zhiyuan Cheng, D.; Hong, L.; Li, Y.; Xi-
+bert: Aligning image pixels with text by deep multi-modal          aoming Wang, S.; Xu, T.; and Chi, E. H. 2020. Mixed nega-
+transformers. arXiv preprint arXiv:2004.00849.                     tive sampling for learning two-tower neural networks in rec-
+Kreps, J.; Narkhede, N.; Rao, J.; et al. 2011. Kafka: A dis-       ommendations. In Companion proceedings of the web con-
+tributed messaging system for log processing. In Proceed-          ference 2020, 441–447.
+ings of the NetDB, volume 11, 1–7. Athens, Greece.                 Yin, H.; Cui, B.; Li, J.; Yao, J.; and Chen, C. 2012. Chal-
+Li, S.; Lv, F.; Jin, T.; Lin, G.; Yang, K.; Zeng, X.; Wu, X.-      lenging the long tail recommendation. arXiv preprint
+M.; and Ma, Q. 2021. Embedding-based product retrieval             arXiv:1205.6700.
+Zhang, H.; Wang, S.; Zhang, K.; Tang, Z.; Jiang, Y.; Xiao,
+Y.; Yan, W.; and Yang, W.-Y. 2020. Towards personal-
+ized and semantic retrieval: An end-to-end solution for e-
+commerce search via embedding learning. In Proceedings of
+the 43rd International ACM SIGIR Conference on Research
+and Development in Information Retrieval, 2407–2416.
+Zhang, X.; Xu, B.; Ma, F.; Li, C.; Yang, L.; and Lin, H.
+2023a. Beyond co-occurrence: Multi-modal session-based
+recommendation. IEEE Transactions on Knowledge and
+Data Engineering.
+Zhang, Y.; Dong, X.; Ding, W.; Li, B.; Jiang, P.; and Gai,
+K. 2023b. Divide and conquer: Towards better embedding-
+based retrieval for recommender systems from a multi-task
+perspective. In Companion Proceedings of the ACM Web
+Conference 2023, 366–370.
+Zhao, P.; Gao, X.; Xu, C.; and Chen, L. 2023. M5: Multi-
+Modal Multi-Interest Multi-Scenario Matching for Over-
+the-Top Recommendation. In Proceedings of the 29th ACM
+SIGKDD Conference on Knowledge Discovery and Data
+Mining, 5650–5659.
+

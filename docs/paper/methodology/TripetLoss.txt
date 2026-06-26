@@ -1,0 +1,617 @@
+                                                                    Visually Similar Products Retrieval for Shopsy
+                                                                           Prajit Nadkarni                                                         Narendra Varma Dasararaju
+                                                                        prajit.pn@flipkart.com                                                        narendra.varma@flipkart.com
+                                                                       Flipkat Internet Pvt. Ltd.                                                        Flipkat Internet Pvt. Ltd.
+                                                                           Bengaluru, India                                                                  Bengaluru, India
+
+                                         ABSTRACT                                                                                      1    INTRODUCTION
+                                         Visual search is of great assistance in reseller commerce, especially                         Reseller commerce in India is a continuously growing multi-billion
+                                         for non-tech savvy users with affinity towards regional languages. It                         dollar market, which helps resellers utilize social platforms like
+                                         allows resellers to accurately locate the products that they seek, un-                        Facebook and Whatsapp to bring commerce to the Next 500 Million
+arXiv:2210.04560v1 [cs.CV] 10 Oct 2022
+
+
+
+
+                                         like textual search which recommends products from head brands.                               customers. Resellers influence and assist their customers by curat-
+                                         Product attributes available in e-commerce have a great potential                             ing the right products and doing order management, thus building
+                                         for building better visual search systems [2, 20, 29] as they capture                         a layer of trust and assistance for users to perform online shop-
+                                         fine grained relations between data points. In this work, we design                           ping via social platforms. Shopsy is an app by Flipkart that allows
+                                         a visual search system for reseller commerce using a multi-task                               resellers to share products with ease to their end customers and
+                                         learning approach. We also highlight and address the challenges                               earn money by enabling commerce. Resellers communicate with
+                                         like image compression, cropping, scribbling on the image, etc,                               the end user over social platforms in a way to keep all the Shopsy
+                                         faced in reseller commerce.                                                                   constructs hidden, thus building their business with no intermedi-
+                                            Our model consists of three different tasks: attribute classifica-                         ary. Therefore, reseller communication with the end user does not
+                                         tion, triplet ranking and variational autoencoder (VAE). Masking                              include any product links, but is done entirely using images and
+                                         technique [23] is used for designing the attribute classification. Next,                      written description.
+                                         we introduce an offline triplet mining technique which utilizes in-                              Reseller commerce covers following use cases: (1) Reseller pro-
+                                         formation from multiple attributes to capture relative order within                           motes the products by sharing the images or description of the
+                                         the data. This technique displays a better performance compared                               product with their end-user. The user then shows interest in buying
+                                         to the traditional triplet mining [27] baseline, which uses single la-                        a specific product and shares back the product image. (2) Reseller
+                                         bel/attribute information. We also compare and report incremental                             wants to check the availability of a product, that the user found in-
+                                         gain achieved by our unified multi-task model over each individual                            teresting on social media, in the Shopsy catalog. It should be noted
+                                         task separately. The effectiveness of our method is demonstrated                              that images shared by the users with the reseller may be cropped
+                                         using the in-house dataset of product images from the Lifestyle                               or contain additional markings to highlight specific aspects of the
+                                         business-unit of Flipkart, India’s largest e-commerce company. To                             product. Images also undergo compression while being shared over
+                                         efficiently retrieve the images in production, we use the Approx-                             chat. The reseller may also add their logo on the image to promote
+                                         imate Nearest Neighbor (ANN) index. Finally, we highlight our                                 their business. Over time as the reseller promotes multiple products
+                                         production environment constraints and present the design choices                             to multiple users, it becomes hard to locate the requested product
+                                         and experiments conducted to select a suitable ANN index.                                     using textual search. It is difficult to describe visual characteristics
+                                                                                                                                       of a product using words. Searching products using text tends to
+                                                                                                                                       surface products from head brands and does not guarantee retrieval
+                                         KEYWORDS
+                                                                                                                                       of the required item. Visual search tackles these limitations as it
+                                         content based image retrieval, visual search, multi-task Learning,                            captures the exact visual patterns of the query image and retrieves
+                                         triplet loss, variational autoencoder                                                         the best matched item. Therefore, we build a visual search system
+                                                                                                                                       for reseller commerce to handle the above mentioned use cases.
+                                         ACM Reference Format:                                                                            In recent years, visual search has been built across many com-
+                                         Prajit Nadkarni and Narendra Varma Dasararaju. 2022. Visually Similar                         panies including Alibaba’s Pailitao [36], Pinterest Flashlight and
+                                         Products Retrieval for Shopsy. In ,. ACM, New York, NY, USA, 10 pages.                        Lens [13, 34, 35], Google Lens [24], Microsoft’s Visual Search [12],
+                                         https://doi.org/00.0000/0000000.0000000
+                                                                                                                                       etc. These applications demonstrate large scale visual search sys-
+                                                                                                                                       tems for massive updating data. They focus on the quality of rec-
+                                                                                                                                       ommendations to improve user engagement. Flipkart catalog also
+                                                                                                                                       contains millions of products and our primary aim is to assist the
+                                         Permission to make digital or hard copies of all or part of this work for personal or
+                                         classroom use is granted without fee provided that copies are not made or distributed
+                                                                                                                                       reseller in retrieving the exact item. The images in our catalog up-
+                                         for profit or commercial advantage and that copies bear this notice and the full citation     date upon the introduction of new products. Therefore, we design a
+                                         on the first page. Copyrights for components of this work owned by others than ACM            system that offers high precision and low latency, while considering
+                                         must be honored. Abstracting with credit is permitted. To copy otherwise, or republish,
+                                         to post on servers or to redistribute to lists, requires prior specific permission and/or a   the size of our catalog and the update rate.
+                                         fee. Request permissions from permissions@acm.org.                                               In this work, we consider products only in the fashion category,
+                                         NA ’22, NA                                                                                    as currently the reseller commerce in India is focused on fashion.
+                                         © 2022 Association for Computing Machinery.
+                                         ACM ISBN 978-x-xxxx-xxxx-x/YY/MM. . . $15.00
+                                                                                                                                       Recent works in fashion [2, 20, 29] have demonstrated the use of
+                                         https://doi.org/00.0000/0000000.0000000                                                       product attributes to build high quality visual embeddings using
+NA ’22, NA                                                                                                Prajit Nadkarni and Narendra Varma Dasararaju
+
+
+a combination of attribute classification and triplet ranking loss.         between them. However, these losses suffer from high training
+We design a multi-task model that learns from three different tasks:        complexity 𝑂 (𝑀 2 ) or 𝑂 (𝑀 3 ) where M is the number of data points,
+attribute-classification, triplet ranking and variational autoencoder.      thus slow convergence. Recent works like Proxy-NCA [21], Proxy
+Finally, we highlight our production constraints and build an end           Anchor [16], etc, resolve the above complexity issue by introducing
+to end visual search system for our use case.                               proxies, thus aiding in faster convergence.
+   Our key contributions can be summarized as follows:                          In all of the above losses, pair-based or proxy-based, the positives
+                                                                            and negatives are chosen based on the class label, ie. positives are
+    • We build a visual search system for reseller commerce and
+                                                                            from the same class as anchor and negatives from a different class.
+      highlight challenges in this domain like image compression,
+                                                                            For instance, in the face-recognition setting, to ensure enough
+      cropping, scribbling on the image, etc.
+                                                                            positives in each mini-batch, Schroff et al. [27] used a mini-batch
+    • We present a triplet mining technique that uses information
+                                                                            of 1800 such that around 40 faces are selected per identity per mini-
+      from multiple attributes to capture relative order within the
+                                                                            batch. In the case of proxy based losses, all proxies are part of the
+      data. It gives us twice as good performance as the traditional
+                                                                            model and are kept in memory. Since each proxy represents a class,
+      triplet mining technique, that uses a single label/attribute,
+                                                                            it puts a limit on the number of classes. Applying these techniques
+      which we have used as a baseline.
+                                                                            to e-commerce is challenging, where the possible class labels could
+    • We build a multi-task model to learn high-quality visual
+                                                                            be a product-id or a product-vertical (eg. t–shirt, shoe, watch, etc).
+      embeddings and attain a 4% incremental gain over the best
+                                                                            In e-commerce, we have over millions of products with only 3–4
+      individual task.
+                                                                            images per product, that appear on its product page, and the total
+    • We highlight the business requirements and infrastructure
+                                                                            number of verticals range only in a few hundreds. Choosing the
+      constraints for our reseller commerce environment, and
+                                                                            class label as product-id can be too restrictive as there are only a
+      demonstrate an end to end visual search system that of-
+                                                                            few positives to learn from, and in the proxy based setting it would
+      fers high precision and low latency, while considering our
+                                                                            lead to millions of proxies. Choosing the product-vertical as class
+      catalogue size and the data update rate.
+                                                                            label makes the relation between data points too slack and thus we
+    • We present experiments and choices made for selecting an
+                                                                            lose the fine grained intra-vertical details (e.g. discriminating one
+      appropriate Approximate Nearest Neighbor (ANN) index for
+                                                                            t–shirt pattern from another). Thus, applications in the e-commerce
+      our production use case.
+                                                                            domain resort to using product attributes for mining the triplets.
+                                                                                Ak et al. and others [2, 6], etc, choose triplets such that the anchor
+2    RELATED WORKS                                                          and the positive must have the same attribute value whereas the
+Large scale visual search systems have been built across many               negative is chosen with a different attribute value. For instance,
+companies [12, 13, 24, 33–36], demonstrating large scale index-             given that the anchor is a ‘blue’ color, positive can be any image
+ing for massive updating data. There has also been research in              with ‘blue’ color. Serra at el. [29] use images with noisy tags (e.g.
+domain specific image retrieval systems, designed for fashion prod-         red-sweater, red-tshirt) and use similarity score ‘intersection over
+ucts [2, 6, 20, 29, 37]. They leverage the product attribute infor-         union’ between the tags. They then choose positives that have a
+mation available in the e-commerce domain to build high quality             similarity score above a threshold and negatives with a score below
+visual embeddings. Other works that focus on extracting visual              the threshold. Shankar et al. [28] prepare triplets with three levels
+attributes for e-commerce [1, 7, 23] demonstrate multi-class classifi-      (positive, in-class-negative, out-of-class-negative), and use a ‘basic
+cation techniques. Parekh et al. [23] employ a masking technique to         image similarity scorer’ (e.g. pretrained AlexNet, color-histogram,
+handle missing attribute values, a practical approach when dealing          PatternNet) for selecting candidates across levels. Drawing ideas
+with products across different verticals. We use the same masking           from the above works, we define an offline triplet mining technique
+technique and build a multi-task learning approach with attribute           that prepares candidates across multiple levels, such that it captures
+classification and triplet ranking loss.                                    the relative order within the data. We sample the candidates under
+   Distance metric learning techniques are primarily designed for           each level based on the percentage of attributes matched.
+image retrieval systems, with the seminal works like contrastive-               Another technique that has been used for image retrieval appli-
+loss [5] and triplet-loss [27]. Triplet loss considers a data point         cations is Autoencoder [11, 19]. Autoencoder is a type of artificial
+as anchor and associates it with a positive and a negative data             neural network where the output is the same as the input. It has
+point, and constrains the distance of an anchor-positive pair to be         an encoder, a decoder and a bottleneck layer in the middle which
+smaller than the anchor-negative pair. These methods have evolved           captures the latent representation of the data. Thus, the bottleneck
+over time, with early generations like Schroff et al. [27], where           layer learns the most important characteristics of the image in
+they introduced a semi-hard negative mining approach. This is an            an unsupervised way. A Variational Autoencoder (VAE) [18] has
+online triplet mining technique which computes useful triplets on           the same structure as an autoencoder but uses a probabilistic ap-
+the fly by sampling hard positive/negatives from within a mini-             proach to learn the latent representation. Unlike an autoencoder,
+batch. Later, techniques evolved to incorporate information beyond          VAE learns the disentangled embedding representation [10], i.e.
+a single triplet like Lifted Structured loss [31], N-Pair loss [30], etc.   where a single latent dimension is affected by only one generative
+These losses associate an anchor point with a single positive and           factor and is invariant to changes in other factors. Thus, the under-
+multiple negative points, and consider their relative hardness while        lying embedding spaces have a smooth continuous transformation
+pushing or pulling these points. The above losses consider the rich         over a latent dimension. For instance, a latent dimension which
+data-to-data relations and are able to learn fine-grained relations         captures color variations, arranges the red t-shirt closer to maroon
+Visually Similar Products Retrieval for Shopsy                                                                                          NA ’22, NA
+
+
+than a green t-shirt. This aspect can be beneficial in retrieving                   all the images from top 4 verticals. We take ‘all the im-
+similar products along with the exact match. Sarmiento at el. [26]                  ages’ from these verticals (and not exclude images from
+demonstrated the use of VAE for similar image retrieval of fashion                  lifestyle_1y_train) to ensure that it represents the in-
+products.                                                                           dexed data in the final production environment.
+   We seek to combine the benefits of attribute-classification, triplet           • lifestyle_1y_4v_query (100k images): We use this as
+ranking and VAE to design a model for image retrieval. Ren at el. and               a test set to query the index, detailed in Section-
+others [15, 25] have shown performance gain of multi-task models                    5.1. This dataset contain random 100k images from
+over individual tasks. Kendall at el. and others [4, 15] have explored              lifestyle_1y_4v_index dataset which are not present in
+ideas on balancing multiple loss objectives. In our work, we have                   training dataset lifestyle_1y_train. The images in this
+taken the naive approach to combining multiple loss objectives                      dataset are augmented using augmentations described in
+and computed the linear sum of the normalized losses for each                       Section-3.3.
+individual task.
+                                                                            3.2     Product Attributes
+3 DATASET
+                                                                            For each image in the dataset, we assign a total of 12 attributes of
+3.1 Datasets                                                                its associated product. These are used for attribute classification
+In this work, we use the in-house dataset of product-images from            task detailed in Section-4.1.2. We have chosen 8 product-aspect
+the Lifestyle business unit of Flipkart. To limit the size of the dataset   attributes and 4 product-taxonomy attributes. There may be missing
+for training, we consider only products that were ordered in the            values for some of the product attributes, e.g. a shoe will have no
+last one year. It has approximately 10+ million images, across 2+           value for an attribute sleeve-length. This is a common scenario
+million products spanning 250+ product verticals. A product has             when we deal with products across different verticals. Detailed list
+3 to 4 images on average that are displayed on its product page.            of attributes and their sample values are shown in the Table-1.
+Figure-1 shows the distribution of images for top product verticals.
+                                                                            3.3     Image Preprocessing
+                                                                            We apply following augmentations to the images:
+
+                                                                                  • cropping (random 180 × 180 crops on 224 × 224 image)
+                                                                                  • color-augmentation (gray-scale, saturation, brightness)
+                                                                                  • horizontal-flip
+                                                                                  • rotation (0 to 90 degrees)
+                                                                                  • overlay a 80 × 80 logo on top of 224 × 224 image
+                                                                                  • jpeg-compression (quality: 20–50)
+
+                                                                            These are done to handle the image modifications introduced while
+                                                                            sharing images over chat, with respect to the reseller use cases
+                                                                            (Section-1). We also consider the possibilities of other augmen-
+                                                                            tations that may happen in the photo editor like horizontal-flip,
+                                                                            rotation, changes in brightness, saturation.
+
+Figure 1: Distribution of top-10 product-verticals in the                   3.4     Triplet Generation
+Lifestyle business-unit (1 year). Percentage denotes the pro-               We prepare triplets<anchor, positive, negative> of images to learn
+portion of vertical images in the dataset. The remaining ver-               the distance metric using triplet-loss, described in Section-4.1.3.
+ticals constitute 53.79% of the dataset.                                    Product-aspect attributes and product-vertical information are used
+                                                                            to sample effective triplets to account for relative order in the data.
+  We create training, indexing, and querying subsets using the              We preprocess the dataset and prepare four candidate-levels for
+above dataset. These include:                                               each anchor image, where each level contains a list of images:
+
+     • lifestyle_1y: Contain images of all products from Lifestyle                • Level-0: list of images belonging to the same product as that
+       business-unit ordered in the last 1 year.                                    of the anchor image.
+     • lifestyle_1y_train (∼ 1 million images): Random 1M                         • Level-1: list of images belonging to products from the same
+       images sampled from lifestyle_1y dataset. We split this                      vertical as anchor image, and greater than 80% product-aspect
+       into train-test-validation sets in the ratio 85:10:5.                        attribute match with the product in anchor image.
+     • lifestyle_1y_4v_index (∼ 3 million images): We use this                    • Level-2: list of images belonging to products from the same
+       set to build an index for evaluating the image retrieval                     vertical as anchor image, and less than 80% product-aspect
+       task, detailed in Section-5.1. The lifestyle_1y dataset was                  attribute match with the product in anchor image.
+       too large to conduct multiple runs of experiments across                   • Level-3: list of images belonging to products from a different
+       different models. Therefore, we prepare this subset with                     vertical than that of anchor image.
+NA ’22, NA                                                                                                Prajit Nadkarni and Narendra Varma Dasararaju
+
+
+                                    Table 1: Product Attributes (for the training data of 1M images)
+
+      Attribute Name           Type          Total Values    Sample Values
+      analytic_category        taxonomy           29         WomenWesternCore, WomenEthnicCore, FashionJewellery, etc
+      analytic_sub_category    taxonomy           77         WesternWear, EthnicCore, WomenFashionJewellery, MensTShirt, Watch, etc
+      cms_vertical             taxonomy           147        shoe, sari, t_shirt, watch, shirt, etc
+      analytic_vertical        taxonomy           300        WomenSari, MensRoundAndOthersTShirt, WomenKurtaAndKurti, etc
+      color                    aspect             33         Black, Multicolor, Blue, White, Pink, etc
+      ideal_for                aspect             11         Women, Men, Men & Women, Girls, Boys, etc
+      material                 aspect             27         Polyester, PU, Genuine Leather, Artificial Leather, Synthetic Leather, etc
+      occasion                 aspect             26         Casual, Sports, Party & Festive, Formal, Workwear, etc
+      outer_material           aspect             23         Synthetic, Mesh, Synthetic Leather, Leather, PU, etc
+      pattern                  aspect             39         Solid, Printed, Self Design, Embroidered, Striped, etc
+      sleeve                   aspect             20         Full Sleeve, Half Sleeve, Short Sleeve, 3/4 Sleeve, Sleeveless, etc
+      type                     aspect             328        Round Neck, Analog, Straight, Fashion, Polo Neck, etc
+
+
+To limit the complexity of the above process, random sampling is             aspects that may be able to distinguish within the same class of
+used and the size of the list in each level is limited to 10 (chosen         object (e.g. one t-shirt design from the other).
+based on training complexity and number of epochs).                             As shown in Figure-3, the Resnet50 takes the input image of size
+   During training, first, an anchor-image is randomly sampled               224 × 224. We use Global Average Pooling (GAP) to cast 2D conv
+from the dataset to generate an image-triplet. A candidate positive          maps to 1D. The pooled outputs from conv-block-5 and conv-block-
+image is then sampled by first randomly choosing a level out of              3 are concatenated to get a 1D vector of length 2560. Further, 3
+0,1,2 and then randomly choosing an image from the list of im-               fully-connected layers (dim: 1024, 1024, 2048) are added with batch
+ages in that level. To generate a negative image, we select the next         normalization and relu activation.
+consecutive level to that of the positively chosen level, and then
+randomly choose an image from the list of images in that level. For          4.1.2 Attribute Classification Loss. We use the embeddings gen-
+instance given an anchor image, we sample a positive from level-1            erated by the above model to predict the product attributes. Thus,
+and the negative from the consecutive level-2. We apply augmenta-            images with common product attributes will tend to have embed-
+tions (Section-3.3) to only the anchor image, and no augmentation            ding vectors that are similar to each other. Our data contain multiple
+is applied to the positive and negative images.                              attributes that span across multiple product categories, thus not
+                                                                             all attributes of a product are assigned values (e.g. sleeve-length
+                                                                             is not applicable for shoes). To handle the missing values, we use
+3.5     Training data                                                        the masking technique as mentioned in [23], where they mask the
+For multi-task learning, we sample data by first choosing an image,          loss for the attributes with missing value. The model design for
+and then club together corresponding product-attributes and image-           Attribute Classification task is shown in Figure-4.
+triplets using the process described in above sections. Figure-2                For each attribute, we use multi-class prediction with a single
+shows the combined data prepared for the multi-task model.                   label. 12 product attributes are used as described in Section-3.2. For
+                                                                             each attribute branch, the embedding vector is passed to a dropout
+4     METHOD                                                                 layer followed by a fully-connected layer with softmax activation.
+                                                                             Then, categorical cross-entropy is used to compute loss for each
+Our visual search system can be described in two parts: (1) First, a
+                                                                             attribute. Here, we mask the loss for an attribute with missing value.
+Convolutional Neural Network (CNN) is trained to generate em-
+                                                                             Finally, the loss across all attributes is averaged to compute the per
+beddings that capture the notion of visual similarity. (2) Next, an
+                                                                             sample loss for the attribute-classification task, which is given by:
+Approximate Nearest Neighbor (ANN) Index is built to return simi-
+lar images for the given query image embedding. We describe the                                1 ∑︁
+                                                                                                     𝐴
+embedding generation in Section-4.1 and give the details of ANN              𝐿𝑜𝑠𝑠𝑎𝑡𝑡 _𝑐𝑙 𝑓 (𝑦, 𝑦)
+                                                                                               ˆ =    𝑚𝑎𝑠𝑘 𝑎 × 𝐶𝐶𝐸 (𝑦𝑎 , 𝑦ˆ𝑎 )
+                                                                                               𝐴 𝑎=1
+Index in Section-4.2.                                                                          (
+                                                                                            𝑎    0, if 𝑦𝑎 = −1 (𝑚𝑖𝑠𝑠𝑖𝑛𝑔 𝑣𝑎𝑙𝑢𝑒 𝑓 𝑜𝑟 𝑎𝑡𝑡𝑟𝑖𝑏𝑢𝑡𝑒 𝑎)
+                                                                                        𝑚𝑎𝑠𝑘 =
+4.1     Embedding generation                                                                     1, otherwise
+4.1.1 Backbone-CNN. A modified version of Resnet50 [9] is used               where, A is the number of attributes, CCE is the categorical cross-
+as our backbone CNN model. We concat the output of conv-block-               entropy, 𝑦ˆ𝑎 is the predicted label and 𝑦𝑎 is the ground truth label
+3 with the final output from conv-block-5 as shown in Figure-3.              for attribute a. For missing values, the ground truth label 𝑦𝑎 is set
+Our intuition is that, out of 5 blocks of convolution, the initial           to −1.
+layers learn the fine-grained details (e.g. lines or blobs) while the
+later layers learn more abstract concepts like object class (e.g. shoe,      4.1.3 Triplet Loss. In this task, we aim to learn the relative or-
+t-shirt). Thus, the middle layers tend to capture the interesting            der in the data points by using a distance metric. We consider a
+Visually Similar Products Retrieval for Shopsy                                                                                          NA ’22, NA
+
+
+
+
+Figure 2: Random training samples. Only the anchor image is augmented which is shown in column AnchorAug. Note the
+similarity of positive and negative images with the anchor image, considering their levels mentioned in Section-3.4. Columns
+on the right represent attributes of the product in anchor image, −1 denotes a missing attribute value for that product.
+
+
+                                                                       and anchor-negative, which are fed to a Hinge Loss function. The
+                                                                       final loss from triplet task is given by:
+
+                                                                                  𝐿𝑜𝑠𝑠𝑡𝑟𝑖𝑝𝑙𝑒𝑡 (𝑎, 𝑝, 𝑛) = [𝑑 (𝑎, 𝑝) − 𝑑 (𝑎, 𝑛) + 𝑀] +
+
+                                                                       where a, p, n are the embedding vectors of anchor, positive and neg-
+                                                                       ative images respectively. The function 𝑑 (.) is the squared euclidean
+                                                                       distance. M is the margin, and [.] + is the hinge function. We have
+                                                                       used a margin of 0.2 (considering that squared euclidean distance
+                                                                       ranges between 0 to 4 on the surface of n-dim hypersphere).
+                                                                          We compare our triplet mining approach with triplet semi-hard
+                                                                       mining technique [27] as the baseline. The semi-hard technique
+Figure 3: Encoder Network. We have used modified                       uses cms_vertical as the class label and samples the positives and
+Resnet50 [9], where we concat the output of conv-block-3               negatives from within a mini-batch (size: 256), i.e. positives are
+with the final output from conv-block-5                                chosen from the same class as the anchor and negatives from a
+                                                                       different class.
+
+triplet<anchor, positive, negative> of images, which are sampled       4.1.4 VAE Loss. In a variational autoencoder, there is an encoder,
+such that the anchor image is more similar to a positive image than    a decoder and a latent bottleneck layer in the middle. VAEs ensure
+a negative image (Section-3.4). Then the embedding vector is learnt    latent embedding layer is normally distributed by using a new layer
+for each image, such that the distance between anchor-positive is      with parameters mean 𝜇 and standard deviation 𝜎 of a normal dis-
+less than the distance between anchor-negative, in the underlying      tribution 𝑁 (𝜇, 𝜎 2 ). During optimization, the normal distribution
+embedding space. The embedding vectors are L2-normalized, which        𝑁 (𝜇, 𝜎 2 ) is forced to be as close as possible to reference standard
+ensures that the embedding vectors are mapped to the surface of        normal distribution 𝑁 (0, 1) using Kullback-Leibler (KL divergence).
+a n-dimensional hypersphere of radius 1. This enables us to use        In the process of reconstruction, the latent bottleneck layer learns
+the euclidean distance as the similarity measure between the two       the salient features of the image whilst the KL-divergence ensures
+vectors, since the euclidean distance over the surface of the unit     the disentanglement [10] within the learnt embedding space. Thus,
+hypersphere is bound between 0 to 2. We then compute the distance      independent latent units become sensitive to latent factors such as
+between anchor-positive and anchor-negative, which is then passed      color, pattern, object-shape. And the embeddings learn a smooth
+to the triplet-loss [27].                                              continuous transformation over the values of these latent factors.
+   During the implementation, we take a triplet<anchor, positive,      For instance, all the t-shirts could lie in one dimension with gradual
+negative> of images prepared in Section-3.4, and pass each of the      transition in their color. Our intuition is that this would cause the
+images through the encoder-network, as shown in the Figure-4.          images in the embedding space to be arranged such that images
+The weights of the encoder-network are shared across the three         with similar looking attributes lie near each other with gradual
+paths. L2-normalization is then applied to the mean-𝜇 layer output     transition in the attribute value. Therefore, when the images are
+of the encoder-network. These L2-normalized image embeddings           retrieved using nearest-neighbor algorithm, they are ordered with
+are used to calculate the squared euclidean distance. The model        exact match followed by only a slight variation in the object char-
+finally outputs two distances, i.e. distance between anchor-positive   acteristics.
+NA ’22, NA                                                                                               Prajit Nadkarni and Narendra Varma Dasararaju
+
+
+
+
+                                                           Figure 4: Multi-Task Model
+
+
+   Our model design for variational autoencoder is shown in               where BCE is binary cross-entropy, x, 𝑥ˆ are the input and the re-
+Figure-4. Here, the encoder-network outputs the mean(𝜇) and log-          constructed images respectively, 𝑛 = 224 × 224 × 3 is total image
+variance(log 𝜎) for a given input image. It is followed by a sampling     dimensions. 𝜇, 𝜎 are the output of mean and variance layers re-
+layer which returns 𝑧 = 𝜇 +𝜎 2 ·𝜖, 𝜖 ∼ 𝑁 (0, 1). The latent embedding     spectively as shown in Figure-4, 𝑧 = 2048 is the number of latent
+is then L2-normalized, this is because downstream ANN indices             dimensions. In practice, we output log-variance instead of the vari-
+work well if the vectors are L2-normalized. This is then passed to        ance for numerical stability.
+decoder-CNN. Our decoder-CNN architecture, shown in Appendix-                We normalize each of the above loss values across their dimen-
+A, uses transposed-convolutions with batch-normalization and relu         sions, and add them to get the final per sample loss for the VAE-Task.
+activations. The last layer uses sigmoid activation to output the
+pixel values of the reconstructed image. We have used the approach                                       1            1
+                                                                                            𝐿𝑜𝑠𝑠 𝑣𝑎𝑒 =     𝐿𝑜𝑠𝑠𝑟𝑒𝑐𝑜𝑛 + 𝐿𝑜𝑠𝑠𝑘𝑙
+from [22] to design the kernels for our decoder-CNN. This helps to                                       𝑛            𝑧
+reduce the checkerboard artifacts that appear in the reconstructed        4.1.5 Multi Task Loss. Multi-Task learning aims to learn a single
+image. The end to end model takes an augmented image (Section-            embedding representation of the given input image, which then out-
+3.3) as input, and it outputs the reconstructed image of exactly the      puts multiple values corresponding to different tasks. The overall
+same dimensions as the input image.                                       setup for multi-task learning is shown in Figure-4. The model pre-
+   The loss objective for VAE-Task is two fold. (1) For the recon-        dicts multiple outputs against each of the tasks: (1) For attribute clas-
+struction loss, we use binary cross-entropy [17] between the orig-        sification task, it outputs softmax-probabilities of attribute-values
+inal non-augmented input image and the reconstructed output               against each of the 12 product-attributes using the augmented-
+image. (2) The KL-divergence loss [32] between the encoder distri-        anchor-image embedding. (2) For the triplet ranking task, it outputs
+bution 𝑞(𝑧|𝑥) = 𝑁 (𝑧|𝜇 (𝑥), Σ(𝑥)) 𝑤ℎ𝑒𝑟𝑒 Σ = 𝑑𝑖𝑎𝑔(𝜎12, . . . , 𝜎𝑧2 ) and   two distances: distance between <augmented-anchor, positive>, and
+the prior standard normal distribution 𝑁 (0, 1).                          the distance between <augmented-anchor, negative>. (3) For VAE
+                           𝑛
+                          ∑︁                                              task, it takes the augmented-anchor-image as input, and outputs
+    𝐿𝑜𝑠𝑠𝑟𝑒𝑐𝑜𝑛 (𝑥, 𝑥ˆ) =         𝐵𝐶𝐸 (𝑥𝑖 , 𝑥ˆ𝑖 )                           the reconstructed image with the same dimensions as the input
+                          𝑖=1                                             image. We add the loss from each of the above tasks to construct
+                          1
+                             ∑︁𝑧
+                                               ∑︁𝑧         𝑧
+                                                           ∑︁            the final per sample loss:
+       𝐿𝑜𝑠𝑠𝑘𝑙 (𝜇, 𝜎) =       −     log 𝜎𝑖2 + 1 +     𝜎𝑖2 +     𝜇𝑖2
+                          2    𝑖=1               𝑖=1       𝑖=1                    𝐿𝑜𝑠𝑠𝑚𝑢𝑙𝑡𝑖_𝑡𝑎𝑠𝑘 = 𝐿𝑜𝑠𝑠𝑎𝑡𝑡 _𝑐𝑙 𝑓 + 𝐿𝑜𝑠𝑠𝑡𝑟𝑖𝑝𝑙𝑒𝑡 + 𝐿𝑜𝑠𝑠 𝑣𝑎𝑒
+Visually Similar Products Retrieval for Shopsy                                                                                      NA ’22, NA
+
+
+4.1.6 Image Embedding. To generate the embedding for a given              Table 2: Retrieval Score (prec@4) per augmentation-
+query image using the above multi-task model, we take the output          type. For models (T-SH: triplet semi-hard, A: attribute-
+from mean-layer (𝜇) and apply the L2-normalization.                       classification, T: triplet-loss, V: VAE, MT: multi-task)
+
+
+4.2     ANN-Index                                                               Augmentation         T-SH       A      T      V    MT
+The only way to guarantee retrieval of exact nearest neighbors in               all_augmentation      0.02   0.58   0.50   0.10   0.64
+n-dimensional space is exhaustive search, which is not practical to             compression           0.83   0.97   0.98   0.98   0.97
+be used at query time in production. Thus, we resort to Approx-                 crop                  0.12   0.85   0.85   0.20   0.89
+imate Nearest Neighbor (ANN) technique, which speeds up the                     hor_flip              0.20   0.91   0.95   0.93   0.95
+search by preprocessing the data into efficient indices. There are              no_augmentation       0.98   1.00   1.00   1.00   1.00
+many readily available libraries that implement ANN Indices e.g.                logo_overlay          0.62   0.97   0.98   0.95   0.98
+Faiss [14], ScaNN [8], Annoy [3], etc. Our primary aim is to assist             rotation              0.18   0.89   0.85   0.77   0.93
+the reseller in finding the exact item, thus we focus on high preci-            average               0.42   0.88   0.87   0.70   0.91
+sion, followed by a throughput (queries-per-second) which ranges
+in few thousands. The total number of images in our system ranges
+in a few millions, and are updated only upon the introduction of
+new products in the catalog. Based on this business use case, we             First, we build the ANN index with the index-dataset using the
+conducted exhaustive grid-search over multiple ANN indices, and           process described in Section-4.2. Next, for each image in the query-
+found ScaNN [8] and HNSW [14] to work the best for our produc-            dataset, top-k items are retrieved from the ANN-Index. If the query
+tion use case. The detailed results of our experiments are presented      image-id is present in the top-k retrieved items, it is marked as
+in Section-5.3.                                                           success (1) else as a failure (0). Finally, we average over all the
+   Given the embeddings generated in the previous section (Section-       samples to compute precision@k.
+4.1.6), we first use PCA to reduce the embedding dimensionality              We build separate models using each of the individual tasks
+from 2048d to 256d. An ANN index is then built using the embed-           (Attribute Classification, Triplet Loss, Triplet Semi-Hard, VAE) and
+dings of all the images in our database. When a user searches using       compare it with our combined multi-task model and report the
+an image, the ANN index is queried using the image embedding              incremental gains achieved by multi-task technique. As shown in
+and the top-k nearest neighbor images are retrieved.                      Figure-5, the unified multi-task model performs better than the
+                                                                          model learnt using each of the individual tasks. Also, we see that
+                                                                          our triplet mining technique performs twice as better than the
+4.3     Implementation                                                    online triplet semi-hard mining [27] which uses cms_vertical as
+We train our model using a batch-size of 32. Adam(𝛽 1 : .9, 𝛽 2 : .999)   the class label. In Table-2, we compare the model performance for
+is used as an optimizer with a learning-rate of 10−3 for initial 100      each individual image augmentation and display the results for
+epochs and then reduced to 10−5 till convergence. We end our              prec@k=4. We see 4% gain on average with the unified multi-task
+training using early-stopping with patience of 10 epochs. Model is        model over the best individual task performance.
+trained on single Tesla V100 GPU for a total of 148 epochs.
+
+4.4     Evaluation
+We evaluate our model on the image retrieval task, and use preci-
+sion@k to measure the success. Precision@k returns the number of
+relevant results among the top k retrieved items. In production, we
+consider a query as successfully resolved if the exact item is present
+in the top k retrieved items, thus prec@k correctly measures our
+success. The detailed results are presented in Section-5.1.
+
+5 EXPERIMENTS
+5.1 Image retrieval task
+We set up the image-retrieval task such that it replicates the process
+in our production environment. In production, when a user searches
+using an image, the top-k items are retrieved from the ANN-
+index. We prepare two datasets, index-dataset and query-dataset.          Figure 5: Image retrieval performance of models (T-SH:
+The lifestyle_1y_4v_index (Section-3.1) is used as index-dataset          triplet semi-hard, A: attribute-classification, T: triplet-loss,
+which represents the images in our production database. The               V: VAE, MT: multi-task). We measure precision@k, where k
+lifestyle_1y_4v_query is used as the query dataset which con-             is the top retrieved images from the ANN index.
+tain the augmented images and represent user queries that we may
+expect in our live system.
+NA ’22, NA                                                                                                  Prajit Nadkarni and Narendra Varma Dasararaju
+
+
+Table 3: ANN Index performance, ordered by precision then QPS(queries per second). The index uses a single cpu-core, and
+was built with total of 3 million images.
+
+ Index               Precision@4       QPS      Build Time (sec)   Size(GB)        Hyper Params
+ ScaNN                       0.87     999.19                 79         3.37       reorder_num_neighbors: 100, leaves_to_search: 50
+ HNSW_Flat                   0.87     730.19                313         3.40       efSearch: 100, efConstruction: 100, M: 16
+ HNSW_SQ                     0.87     679.08                565         1.16       qtype: 0, efSearch: 100, efConstruction: 100, M: 16
+ IVF_Flat                    0.87     102.28                335         3.01       nprobe: 64, nlists: 10000
+ IVF_SQ                      0.87      63.23                383         0.78       qtype: 0, nprobe: 64, nlists: 10000
+ Annoy                       0.87      62.25               2354         6.43       search_k: 50000, prefault: True, n_trees: 100
+ FlatL2                      0.87       1.19                  4         2.98       -
+ HNSW_PQ                     0.84   1,388.29                287         0.61       pqM: 64, efSearch: 100, efConstruction: 100, M: 16
+ HNSW_2Level                 0.80     786.88                464         0.52       pqM: 32, nlists: 1000, efSearch: 100, efConstruction: 100, M: 16
+
+
+             Table 4: Attribute Classification Accuracy                    have only crop-augmented images since it represents the most
+                                                                           common use case in our system. It also provides consistency in
+                  Attribute Name          Accuracy                         the image distribution while comparing multiple ANN Indices.
+                                                                           We test around 3–4 values of each hyper-parameter using a grid
+                  analytic_category            0.828
+                                                                           search, and list the best configuration for each index in the Table-3.
+                  analytic_sub_category        0.756
+                                                                           All indices are constrained to run on a single cpu-core. We can
+                  cms_vertical                 0.762
+                                                                           see from the Table-3, the top performing index(ScaNN, HNSW)
+                  analytic_vertical            0.646
+                                                                           experienced no drop in performance compared with exhaustive
+                  color                        0.542
+                                                                           search (FlatL2). Further, the top index offers a QPS of ∼ 1k per
+                  ideal_for                    0.852
+                                                                           cpu core and very modest memory footprint (∼ 3GB / 3M images)
+                  material                     0.543
+                                                                           which perfectly fits our production use case.
+                  occasion                     0.703
+                  outer_material               0.407
+                                                                               6    PRODUCTION ENVIRONMENT
+                  pattern                      0.625
+                  sleeve                       0.697                       Considering the scale of reseller commerce in India and the available
+                  type                         0.555                       product discovery features (text search, content landing pages)
+                                                                           in Shopsy, we estimate our visual search QPS to range in a few
+                                                                           thousands during the peak business hours. Since our primary aim
+                                                                           is to assist the reseller in locating the exact product, we focus
+5.2    Results of Individual Task                                          on retrieving the images with high precision. Further, to ease the
+We also present the performance of each individual tasks within our        implementation process, we want to ensure our index fits on a single
+multi-task model. Table-4 displays the accuracy for the attribute          node (not distributed), thus limiting the memory footprint of the
+prediction task against each individual attribute. Our final triplet-      ANN index to be less than ∼ 80GB. The images in our system update
+loss is 0.052 where 77.9% of samples are correctly ordered with            upon introduction of new products in our catalog, which is not a
+zero triplet-loss. For the VAE task, the final reconstruction loss is      frequent activity. But we prefer a short index build time because it
+0.477 and KL-divergence loss is 0.013. Sample predictions for each         adds convenience to the index updation process. Our top ANN index
+task of the multi-task model are shown in Appendix-B.                      (Table-3) is able to satisfactorily address all the above constraints
+                                                                           with minimal infrastructure demands. The embedding generation
+5.3    Selection of ANN Index                                              model (Section-4.1.6) is able to process 9 QPS on a CPU core and 14
+Our goal is to choose the Approximate Nearest Neighbor (ANN)               QPS on a GPU (since this is a single image and not batched). Thus,
+index that best suits our business use case, outlined in Section-4.2.      we aim to fulfill the business requirements by scaling the number
+Our production environment, detailed in Section-6, demands an              of nodes (e.g. 5 CPU instances of 20 cores each, can support around
+index that offers high precision, high QPS (queries-per-second), low       a thousand QPS). Although we solve for a number of use cases like
+memory footprint and preferably a short build time. Considering            cropping, compression, etc, of catalog images, another important
+these requirements, we experimented with different indices (Table-         use case is ‘images in the wild’, i.e. photos our users take with their
+3), and found ScaNN [8] and HNSW [14] to be well suited for                cameras, which we would like to solve before we deploy the entire
+our production use case. We also experimented with quantization            solution to production.
+techniques like IVF(Inverted File Index), PQ(Product Quantization)
+and SQ(Scalar Quantization), if supported in the index library.                7    CONCLUSION
+   For    this     analysis,    we      build   the     index     us-          In this work, we build an end to end visual search system for re-
+ing      lifestyle_1y_4v_index            dataset,     and       use           seller commerce, which helps to retrieve products more accurately
+lifestyle_1y_4v_query as the query dataset. We chose to                        compared to text search. We describe the evolution of distance
+Visually Similar Products Retrieval for Shopsy                                                                                                                       NA ’22, NA
+
+
+metric learning over time and application of these methods to the                              2 (Montreal, Canada) (NIPS’14). MIT Press, Cambridge, MA, USA, 3581–3589.
+e-commerce domain. We introduce an offline triplet mining tech-                           [18] Diederik P Kingma and Max Welling. 2014. Auto-Encoding Variational Bayes.
+                                                                                               arXiv:1312.6114 [stat.ML]
+nique which captures relative order within the data. Comparing                            [19] Alex Krizhevsky and Geoffrey E. Hinton. 2011. Using very deep autoencoders
+our approach with the triplet semi-hard mining technique, which                                for content-based image retrieval. In ESANN.
+                                                                                          [20] Ziwei Liu, Ping Luo, Shi Qiu, Xiaogang Wang, and Xiaoou Tang. 2016. DeepFash-
+uses product-vertical as class label, shows twice as good perfor-                              ion: Powering Robust Clothes Recognition and Retrieval With Rich Annotations.
+mance as the latter. This indicates that attribute information plays                           In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition
+a significant role when mining triplets for e-commerce. Further, we                            (CVPR).
+                                                                                          [21] Y. Movshovitz-Attias, A. Toshev, T. K. Leung, S. Ioffe, and S. Singh. 2017. No Fuss
+combine the benefits of multiple image retrieval approaches using                              Distance Metric Learning Using Proxies. In 2017 IEEE International Conference
+multi-task learning and achieve a 4% gain over the best individual                             on Computer Vision (ICCV). IEEE Computer Society, Los Alamitos, CA, USA,
+learning approach. Finally, we highlight our business requirements                             360–368. https://doi.org/10.1109/ICCV.2017.47
+                                                                                          [22] Augustus Odena, Vincent Dumoulin, and Chris Olah. 2016. Deconvolution and
+and production environment constraints, and present the exper-                                 Checkerboard Artifacts. Distill (2016). https://doi.org/10.23915/distill.00003
+iments conducted to select an ANN index that best suits our use                           [23] Viral Parekh, Karimulla Shaik, Soma Biswas, and Muthusamy Chelliah. 2021.
+                                                                                               Fine-Grained Visual Attribute Extraction From Fashion Wear. In Proceedings
+case.                                                                                          of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+                                                                                               Workshops. 3973–3977.
+                                                                                          [24] Rajan Patel. 2018. Google Lens: real-time answers to questions about the world
+REFERENCES                                                                                     around you. Retrieved Jan 11, 2022 from https://blog.google/products/google-
+ [1] Sandeep Singh Adhikari, Sukhneer Singh, Anoop Rajagopal, and Aruna Rajan.                 lens/google-lens-real-time-answers-questions-about-world-around-you/
+     2019. Progressive Fashion Attribute Extraction. arXiv:1907.00157 [cs.LG]             [25] Zhongzheng Ren and Yong Jae Lee. 2017. Cross-Domain Self-supervised Multi-
+ [2] Kenan E. Ak, Joo Hwee Lim, Ying Sun, Jo Yew Tham, and Ashraf A. Kassim. 2021.             task Feature Learning using Synthetic Imagery. arXiv:1711.09082 [cs.CV]
+     FashionSearchNet-v2: Learning Attribute Representations with Localization for        [26] James-Andrew Sarmiento. 2020. Exploiting Latent Codes: Interactive Fashion
+     Image Retrieval with Attribute Manipulation. arXiv:2111.14145 [cs.CV]                     Product Generation, Similar Image Retrieval, and Cross-Category Recommenda-
+ [3] Erik Bernhardsson. 2018. Annoy: Approximate Nearest Neighbors in C++/Python.              tion using Variational Autoencoders. arXiv:2009.01053 [cs.CV]
+     https://pypi.org/project/annoy/ Python package version 1.13.0.                       [27] Florian Schroff, Dmitry Kalenichenko, and James Philbin. 2015. FaceNet: A
+ [4] Zhao Chen, Vijay Badrinarayanan, Chen-Yu Lee, and Andrew Rabinovich. 2018.                unified embedding for face recognition and clustering. In 2015 IEEE Conference
+     GradNorm: Gradient Normalization for Adaptive Loss Balancing in Deep Multi-               on Computer Vision and Pattern Recognition (CVPR). 815–823. https://doi.org/10.
+     task Networks. arXiv:1711.02257 [cs.CV]                                                   1109/CVPR.2015.7298682
+ [5] S. Chopra, R. Hadsell, and Y. LeCun. 2005. Learning a similarity metric discrim-     [28] Devashish Shankar, Sujay Narumanchi, H A Ananya, Pramod Kompalli, and
+     inatively, with application to face verification. In 2005 IEEE Computer Society           Krishnendu Chaudhury. 2017. Deep Learning based Large Scale Visual Recom-
+     Conference on Computer Vision and Pattern Recognition (CVPR’05). 539–546 vol. 1.          mendation and Search for E-Commerce. arXiv:1703.02344 [cs.CV]
+     https://doi.org/10.1109/CVPR.2005.202                                                [29] Edgar Simo-Serra and Hiroshi Ishikawa. 2016. Fashion Style in 128 Floats: Joint
+ [6] Antonio D’Innocente, Nikhil Garg, Yuan Zhang, Loris Bazzani, and Michael                  Ranking and Classification Using Weak Data for Feature Extraction. In 2016
+     Donoser. 2021. Localized Triplet Loss for Fine-grained Fashion Image Retrieval. In        IEEE Conference on Computer Vision and Pattern Recognition (CVPR). 298–307.
+     2021 IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops             https://doi.org/10.1109/CVPR.2016.39
+     (CVPRW). 3905–3910. https://doi.org/10.1109/CVPRW53098.2021.00435                    [30] Kihyuk Sohn. 2016.         Improved Deep Metric Learning with Multi-class
+ [7] Beatriz Quintino Ferreira, Luís Baía, João Faria, and Ricardo Gamelas Sousa.              N-pair Loss Objective. In Advances in Neural Information Processing Sys-
+     2018. A Unified Model with Structured Output for Fashion Images Classification.           tems, D. Lee, M. Sugiyama, U. Luxburg, I. Guyon, and R. Garnett (Eds.),
+     arXiv:1806.09445 [cs.CV]                                                                  Vol. 29. Curran Associates, Inc. https://proceedings.neurips.cc/paper/2016/file/
+ [8] Ruiqi Guo, Philip Sun, Erik Lindgren, Quan Geng, David Simcha, Felix Chern,               6b180037abbebea991d8b1232f8a8ca9-Paper.pdf
+     and Sanjiv Kumar. 2020. Accelerating Large-Scale Inference with Anisotropic          [31] Hyun Oh Song, Yu Xiang, Stefanie Jegelka, and Silvio Savarese. 2016. Deep Metric
+     Vector Quantization. In International Conference on Machine Learning. https:              Learning via Lifted Structured Feature Embedding. In Proceedings of the IEEE
+     //arxiv.org/abs/1908.10396                                                                Conference on Computer Vision and Pattern Recognition (CVPR).
+ [9] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. 2016. Deep Residual           [32] user3658307        (https://stats.stackexchange.com/users/128284/user3658307).
+     Learning for Image Recognition. In 2016 IEEE Conference on Computer Vision and            [n. d.].   Deriving the KL divergence loss for VAEs.              Cross Validated.
+     Pattern Recognition (CVPR). 770–778. https://doi.org/10.1109/CVPR.2016.90                 arXiv:https://stats.stackexchange.com/q/370048 https://stats.stackexchange.
+[10] Irina Higgins, Loïc Matthey, Arka Pal, Christopher P. Burgess, Xavier Glorot,             com/q/370048           URL:https://stats.stackexchange.com/q/370048 (version:
+     Matthew M. Botvinick, Shakir Mohamed, and Alexander Lerchner. 2017. beta-                 2020-03-03).
+     VAE: Learning Basic Visual Concepts with a Constrained Variational Framework.        [33] Fan Yang, Ajinkya Kale, Yury Bubnov, Leon Stein, Qiaosong Wang, Hadi Kiapour,
+     In ICLR.                                                                                  and Robinson Piramuthu. 2017. Visual Search at EBay. In Proceedings of the 23rd
+[11] Geoffrey E Hinton and Ruslan R Salakhutdinov. 2006. Reducing the dimensional-             ACM SIGKDD International Conference on Knowledge Discovery and Data Mining
+     ity of data with neural networks. science 313, 5786 (2006), 504–507.                      (Halifax, NS, Canada) (KDD ’17). Association for Computing Machinery, New
+[12] Houdong Hu, Yan Wang, Linjun Yang, Pavel Komlev, Li Huang, Xi (Stephen)                   York, NY, USA, 2101–2110. https://doi.org/10.1145/3097983.3098162
+     Chen, Jiapei Huang, Ye Wu, Meenaz Merchant, and Arun Sacheti. 2018. Web-             [34] Andrew Zhai, Dmitry Kislyuk, Yushi Jing, Michael Feng, Eric Tzeng, Jeff Don-
+     Scale Responsive Visual Search at Bing. In Proceedings of the 24th ACM SIGKDD             ahue, Yue Li Du, and Trevor Darrell. 2017. Visual Discovery at Pinterest. In
+     International Conference on Knowledge Discovery &; Data Mining (London, United            Proceedings of the 26th International Conference on World Wide Web Companion
+     Kingdom) (KDD ’18). Association for Computing Machinery, New York, NY, USA,               (Perth, Australia) (WWW ’17 Companion). International World Wide Web Con-
+     359–367. https://doi.org/10.1145/3219819.3219843                                          ferences Steering Committee, Republic and Canton of Geneva, CHE, 515–524.
+[13] Yushi Jing, David Liu, Dmitry Kislyuk, Andrew Zhai, Jiajing Xu, Jeff Donahue,             https://doi.org/10.1145/3041021.3054201
+     and Sarah Tavel. 2015. Visual Search at Pinterest. In Proceedings of the 21th        [35] Andrew Zhai, Hao-Yu Wu, Eric Tzeng, Dong Park, and Charles Rosenberg. 2019.
+     ACM SIGKDD International Conference on Knowledge Discovery and Data Mining                Learning a Unified Embedding for Visual Search at Pinterest. 2412–2420. https:
+     (Sydney, NSW, Australia) (KDD ’15). Association for Computing Machinery, New              //doi.org/10.1145/3292500.3330739
+     York, NY, USA, 1889–1898. https://doi.org/10.1145/2783258.2788621                    [36] Yanhao Zhang, Pan Pan, Yun Zheng, Kang Zhao, Yingya Zhang, Xiaofeng Ren, and
+[14] Jeff Johnson, Matthijs Douze, and Hervé Jégou. 2017. Billion-scale similarity             Rong Jin. 2018. Visual Search at Alibaba. In Proceedings of the 24th ACM SIGKDD
+     search with GPUs. arXiv preprint arXiv:1702.08734 (2017).                                 International Conference on Knowledge Discovery &; Data Mining (London, United
+[15] Alex Kendall, Yarin Gal, and Roberto Cipolla. 2018. Multi-Task Learn-                     Kingdom) (KDD ’18). Association for Computing Machinery, New York, NY, USA,
+     ing Using Uncertainty to Weigh Losses for Scene Geometry and Semantics.                   993–1001. https://doi.org/10.1145/3219819.3219820
+     arXiv:1705.07115 [cs.CV]                                                             [37] Bo Zhao, Jiashi Feng, Xiao Wu, and Shuicheng Yan. 2017. Memory-Augmented
+[16] Sungyeon Kim, Dongwon Kim, Minsu Cho, and Suha Kwak. 2020. Proxy Anchor                   Attribute Manipulation Networks for Interactive Fashion Search. In 2017 IEEE
+     Loss for Deep Metric Learning. In 2020 IEEE/CVF Conference on Computer Vision             Conference on Computer Vision and Pattern Recognition (CVPR). 6156–6164. https:
+     and Pattern Recognition (CVPR). 3235–3244. https://doi.org/10.1109/CVPR42600.             //doi.org/10.1109/CVPR.2017.652
+     2020.00330
+[17] Diederik P. Kingma, Danilo J. Rezende, Shakir Mohamed, and Max Welling. 2014.
+     Semi-Supervised Learning with Deep Generative Models. In Proceedings of the
+     27th International Conference on Neural Information Processing Systems - Volume
+NA ’22, NA                                                                                        Prajit Nadkarni and Narendra Varma Dasararaju
+
+
+                          Table 5: Decoder architecture. Layer type represents TensorFlow layer types
+
+             Layer Name       Layer Type           Kernel / stride   Output Shape     Num Params     Connected to
+             input            InputLayer           -                 (2048)           0              -
+             dense1           Dense                -                 (256)            524544         input
+             dense1_bn        BatchNormalization   -                 (256)            1024           dense1
+             dense1_relu      Activation           -                 (256)            0              dense1_bn
+             dense2           Dense                -                 (50176)          12895232       dense1_relu
+             dense2_bn        BatchNormalization   -                 (50176)          200704         dense2
+             dense2_relu      Activation           -                 (50176)          0              dense2_bn
+             dense2_reshape   Reshape              -                 (7, 7, 1024)     0              dense2_relu
+             conv1            Conv2DTranspose      2×2/2             (14, 14, 512)    2097664        dense2_reshape
+             conv1_bn         BatchNormalization   -                 (14, 14, 512)    2048           conv1
+             conv1_relu       Activation           -                 (14, 14, 512)    0              conv1_bn
+             conv2            Conv2DTranspose      2×2/2             (28, 28, 256)    524544         conv1_relu
+             conv2_bn         BatchNormalization   -                 (28, 28, 256)    1024           conv2
+             conv2_relu       Activation           -                 (28, 28, 256)    0              conv2_bn
+             conv3            Conv2DTranspose      2×2/2             (56, 56, 128)    131200         conv2_relu
+             conv3_bn         BatchNormalization   -                 (56, 56, 128)    512            conv3
+             conv3_relu       Activation           -                 (56, 56, 128)    0              conv3_bn
+             conv3_skip       Conv2DTranspose      8×8/8             (56, 56, 128)    8388736        dense2_reshape
+             conv3_add        Add                  -                 (56, 56, 128)    0              conv3_relu, conv3_skip
+             conv4            Conv2DTranspose      2×2/2             (112, 112, 64)   32832          conv3_add
+             conv4_bn         BatchNormalization   -                 (112, 112, 64)   256            conv4
+             conv4_relu       Activation           -                 (112, 112, 64)   0              conv4_bn
+             conv5            Conv2DTranspose      2×2/2             (224, 224, 3)    771            conv4_relu
+             conv5_bn         BatchNormalization   -                 (224, 224, 3)    12             conv5
+             conv5_sigmoid    Activation           -                 (224, 224, 3)    0              conv5_bn
+
+
+
+
+Figure 6: Sample predictions for each task of the multi-task model. Only the anchor image is augmented which is shown in
+column AnchorAug. It is followed by anchor, positive and negative images sampled using triplet mining technique (Section-
+3.4). Column VAE-Recon shows the reconstructed anchor image (output of the decoder as shown in Figure-4). Columns VAE-
+ReconLoss and TripletLoss show the loss values of the respective row. Columns on the right represent each of the product
+attributes, and the values are in the format <predicted-value>|<ground-truth-value>. The green check highlights that attribute
+value is correctly predicted, while a red cross indicates that the prediction is incorrect. A blank cell indicates a missing attribute
+value for the product.
+
+
+A    DECODER ARCHITECTURE                                              B    MULTI-TASK MODEL PREDICTIONS
+Here we present our decoder architecture for the ease of repro-        Sample predictions for each task of the multi-task model are shown
+ducibility, shown in Table-5.                                          in Figure-6.
+

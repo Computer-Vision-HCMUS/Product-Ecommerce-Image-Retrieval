@@ -1,0 +1,1097 @@
+                                                    M5Product: Self-harmonized Contrastive Learning for E-commercial
+                                                                        Multi-modal Pretraining
+
+
+                                                Xiao Dong1† , Xunlin Zhan2† , Yangxin Wu1 , Yunchao Wei3 , Michael C. Kampffmeyer4 , Xiao-Yong
+                                                                    Wei5 , Minlong Lu6 , Yaowei Wang5 , and Xiaodan Liang2?
+                                            1
+                                                Sun Yat-sen University, 2 Shenzhen Campus of Sun Yat-sen University, 3 Beijing Jiaotong University,
+arXiv:2109.04275v5 [cs.CV] 2 Apr 2022
+
+
+
+
+                                                        4
+                                                          UiT The Arctic University of Norway, 5 PengCheng Laboratory, 6 Alibaba Group
+                                                   {dongx55, zhanxlin, wuyx29}@mail2.sysu.edu.cn, {dx.icandoit,wychao1987,xdliang328}@gmail.com, ymlml@zju.edu.cn,
+                                                                          michael.c.kampffmeyer@uit.no, cswei@scu.edu.cn, wangyw@pcl.ac.cn
+
+
+
+
+                                                                    Abstract                                                        
+
+                                            Despite the potential of multi-modal pre-training to
+                                        learn highly discriminative feature representations from
+                                        complementary data modalities, current progress is being
+                                                                                                                Category   Image    Caption       Table         Video        Audio
+                                        slowed by the lack of large-scale modality-diverse datasets.
+                                                                                                                                      Text
+                                        By leveraging the natural suitability of E-commerce, where              Image                  Bubble Matt Blind Box Storage Ladder
+                                        different modalities capture complementary semantic in-                                        Transparent Display Dust-proof Doll Hand-made
+                                                                                                                                       Jasmine Doll Acrylic Box Holder
+                                        formation, we contribute a large-scale multi-modal pre-                                        Table
+                                        training dataset M5Product. The dataset comprises 5                                            Item: Blind Box Ladder Storage Box
+                                                                                                                                       Brand: Tang Craftsman
+                                        modalities (image, text, table, video, and audio), covers                                      Material: Wood
+                                        over 6,000 categories and 5,000 attributes, and is 500×                                        Color: White, Light Gray, Dark Gray
+                                                                                                                                       Applicable People: Adults
+                                        larger than the largest publicly available dataset with a sim-                                 Applicable Scene: Study
+                                        ilar number of modalities. Furthermore, M5Product con-                  Video                                     Audio
+                                        tains incomplete modality pairs and noise while also hav-
+                                        ing a long-tailed distribution, resembling most real-world
+                                        problems. We further propose Self-harmonized ContrAstive
+                                        LEarning (SCALE), a novel pretraining framework that                 Figure 1. Our M5Product dataset contains a large variety of
+                                        integrates the different modalities into a unified model             modalities (image, text, table, video and audio) that depict the
+                                        through an adaptive feature fusion mechanism, where the              categories, descriptions, materials, properties and purposes of E-
+                                        importance of each modality is learned directly from the             commerce products, and diverse real-world data samples.
+                                        modality embeddings and impacts the inter-modality con-
+                                        trastive learning and masked tasks within a multi-modal              1. Introduction
+                                        transformer model. We evaluate the current multi-modal
+                                                                                                                Self-supervised learning has been driving the rapid de-
+                                        pre-training state-of-the-art approaches and benchmark
+                                                                                                             velopment of fields such as computer vision and natural
+                                        their ability to learn from unlabeled data when faced with
+                                                                                                             language processing, as well as research on multi-modal
+                                        the large number of modalities in the M5Product dataset.
+                                                                                                             representation learning. In particular, it has been shown
+                                        We conduct extensive experiments on four downstream tasks
+                                                                                                             both from a theoretical [18] and a practical [16, 58] per-
+                                        and demonstrate the superiority of our SCALE model, pro-
+                                                                                                             spective that large scale datasets with diverse modalities
+                                        viding insights into the importance of dataset scale and di-
+                                                                                                             can effectively enhance the discrimination of generated fea-
+                                        versity. Dataset and codes are available at 1 .
+                                                                                                             tures and thus improve the performance in vision-language
+                                                                                                             tasks. However, current advances are severely limited by
+                                        1    https://xiaodongsuper.github.io/M5Product_dataset/              the lack of such large-scale diverse-modality datasets, with
+                                            † Equal contribution. ? Corresponding Author.                    the largest public multi-modal datasets only containing text
+
+
+                                                                                                         1
+and image modalities and no category information [41].              named Self-harmonized ContrAstive LEarning (SCALE)
+    Given the prevalence of online shopping in daily life,          and is evaluated on several downstream tasks and compared
+with its natural occurrence of multi-modal information              with several recent state-of-the-art vision-language mod-
+and diverse categories, multi-modal pre-training on E-              els [7, 27, 30, 38, 42, 45, 56]. SCALE increases modality
+commercial products has received increasing attention and           alignment effectiveness by implementing a self-harmonized
+led the developments of next-generation technology for sev-         strategy that adapts the alignment weights between different
+eral downstream tasks (e.g., multi-modal retrieval, multi-          modalities in the contrastive learning modules and masked
+modal classification, and clustering). However, even among          tasks to adaptively integrate complementary modality infor-
+the present product datasets (e.g., RPC checkout [48], Dress        mation. In summary, our contributions are as follows:
+Retrieval [9] and Product1M [55]), the number of categories            • We provide the largest five-modality E-commerce
+is insufficient to robustly verify the performance of down-              dataset M5Product. Through its large scale, diver-
+stream tasks.                                                            sity, complex real scenarios and number of modali-
+    More importantly, the current research community                     ties, M5Product provides a comprehensive environ-
+mostly focuses on two modalities (text and image) in both                ment for evaluating the generalization performance of
+general multi-modal and E-commerce datasets, while ignor-                multi-modal pre-training models.
+ing the importance of additional complementary informa-                • Our Self-harmonized Contrastive Learning (SCALE)
+tion from structural data as well as video and audio modal-              framework learns adaptive modality interactions, re-
+ities. Tabular data for instance can provide detailed infor-             sulting in more effective modality fusion. We com-
+mation about properties and characteristics, such as brand,              pare SCALE to a comprehensive set of baseline meth-
+materials, attributes, and scenarios, while audio and video              ods and demonstrate its superior performance on the
+can convey different perspectives, scales, affordances, sell-            M5Product dataset.
+ing points, characteristics, and use scenarios that are not
+obvious from images or text alone. The focus on these two              • Interesting Observations: 1) In large-scale and com-
+modalities is partly due to the lack of datasets with diverse            plex scenarios, the complementary gain of different
+modalities as well as an under-exploration of approaches to              modalities increases. Learning modality alignment
+balance the modality importance in these settings. In partic-            weights allows our SCALE framework to effectively
+ular, two key challenges are: 1) Modality Interaction: How               coordinate complementary information to achieve bet-
+to learn common representations from unimodal, bimodal,                  ter performance. 2) For multi-modal pre-training mod-
+trimodal, and even multi-modal relationships between dif-                els in the E-commerce domain, dataset scale and di-
+ferent modalities using an elegant approach that scales to               versity are relatively important for the downstream
+a large number of modalities; 2) Modality Noise: How to                  tasks. Given the large-scale and diverse products, our
+reduce the influence of modality noise (missing and incom-               SCALE framework generalizes better than other base-
+pleted modalties) during the training process.                           lines to downstream tasks.
+    To address the problem of insufficient modality diver-
+sity and limited scale, while at the same time providing a
+                                                                    2. Related Work
+challenging real-world scenario, we present a very large-           Multi-modal pre-training datasets. Most multi-modal
+scale E-commerce multi-modal product dataset M5Product,             pre-training datasets are collected from social websites
+which is one of the largest and most diverse multi-modal            (e.g., Twitter and Facebook) and are limited to just two
+product dataset to date. Our M5Product dataset contains             modalities collected for specified tasks. These datasets can
+more than 6 million multi-modal samples from 6,232 cat-             be divided into four categories according to their modal-
+egories and has more complex and diverse modalities than            ity composition, i.e., audio/text, video/text, image/text, and
+existing datasets. This allows M5Product to be used for             others. Among these, LJ Speech [19] and SQuAD [25] are
+more comprehensive evaluation of the practical application          classical audio/text datasets and used for voice synthesis
+and generalization abilities of multi-modal pretraining mod-        and audio Q&A, while most video/text datasets [2, 20, 24,
+els and can improve the modality fusion performance, fa-            32, 46, 47, 51, 57] are used for video Q&A. However, these
+cilitating new directions in multimodal research. Figure 1          datasets commonly only contain a limited number of sam-
+shows the five modalities (image, caption, video, audio, and        ples, limiting their applicability to multi-modal pretraining.
+specification (table)) of our dataset.                              Image/text datasets [1, 4, 8, 17, 22, 23, 29, 34, 41, 43, 48, 53],
+    To further address the modality fusion limitations of ex-       on the other hand, tend to be larger and have been widely
+isting methods as well as handle modality noise, we propose         used for pretraining multi-modal models. Among these, the
+a generic framework that takes five-modality data as inputs,        CC 3M [41] with more than three million image-text pairs is
+as shown in Figure 2. The framework consists of a sim-              the most widely used pre-training dataset, and has recently
+ple and efficient multi-modal five stream pre-training model        been expanded to CC 12M [5], the largest text-image cross-
+
+                                                                2
+Table 1. Comparisons with other widely used multi-modal                                      Table 2. The characteristics of different modalities for E-products.
+datasets. ”-” means not mentioned. Our M5Product is one of the                                   Modality   APP    USA     SPEC SELL        PROD     MATE      CATE
+largest multi-modal datasets compared with existing datasets. Six                                 Image      X
+modalities are separately denoted as: Image (I), Text (T), Video                                   Text              X               X        X                  X
+(V), Audio (A), Table (Tab) and 3D Image (3D).                                                    Video      X       X                        X         X
+     Dataset        Samples    Categories Instances Modalities    Modal type   Product
+                                                                                                  Audio              X                        X         X
+                                                                                                  Table                      X                X         X        X
+  SQuAD [25]     37,111            -          -         2            A/T         no
+                                                                                             specifically, transformer-based approaches combine high-
+HowTo100M [32] 1,220,000          12          -         2            V/T         no
+  CC 3M [41]    3,300,000          -          -         2            I/T         no          level features that are extracted from the different inputs
+  CC 12M [5]   12,423,374          -          -         2            I/T         no          via concatenation, where the uni-modal transformers are
+CMU-MOSEI [54] 23,500              2          -         3           T/V/A        no
+  XMedia [36]    12,000           20          -         5        I/T/V/A/3D      no
+                                                                                             trained via masked task constraints or via constructing inter-
+                                                                                             modality losses between different modalities. This re-
+RPC checkout [48] 30,000         200 367,935            2             I/T       yes
+Dress Retrieval [9] 20,200        50 ∼20,200            2             I/T       yes          stricts the models from effectively prioritizing modalities
+ Product1M [55] 1,182,083        458  92,200            2             I/T       yes          and tends to limit performance improvements as the num-
+  MEP-3M [6]       3,012,959     599     -              2             I/T       yes
+   M5Product       6,313,067    6,232    -              5        I/T/V/A/Tab    yes
+                                                                                             ber of modalities increases.
+                                                                                                 Our proposed benchmark fills this gap by exploiting all
+modal dataset currently. Apart from these, commonly used                                     the diverse modalities of the M5Product dataset and pro-
+Image/text datasets for multi-modal retrieval tasks are MS                                   vides a strong baseline for multi-modal pre-training re-
+COCO [29], Flickr30K [53], INRIA-Websearch [22] and                                          search in the field of E-commerce and beyond.
+NUS-WIDE [8] with standard annotations. Other datasets
+                                                                                             3. M5Product Dataset
+include CMU-MOSEI [54] and XMedia [36], where CMU-
+MOSEI mainly focuses on the emotional analysis and XMe-                                      Data Collections. The dataset is crawled from a popu-
+dia is utilized for cross-modal retrieval.                                                   lar E-commerce website 2 . and the front page of each E-
+    Aside from the abovementioned datasets, there exist sev-                                 commerce product is analyzed to collect the multi-modal
+eral E-commerce datasets. The Dress Retrieval [9], RPC                                       information consisting of product images, captions, videos,
+checkout [48] and Product1M [55] are typical E-commerce                                      and specifications (table information) 3 . Duplicate data is
+multi-modal datasets. The Dress Retrieval dataset contains                                   removed and audio information is extracted from videos via
+20,200 samples from 50 clothing categories, RPC check-                                       the moviepy 4 tool and saved in mp3 format. For prod-
+out offers 30,000 samples of small retail goods on simple                                    uct specifications, we extract 5,679 product properties and
+backgrounds and Product1M provides 1.18 million samples                                      24,398,673 values to construct a table database coarsely
+from 458 cosmetics classes. Compared with these three                                        labeled by e-commerce merchants. After processing, the
+datasets, our M5Product is not only larger in terms of cate-                                 dataset contains 6,313,067 samples. Note, being a real-
+gories and data scale, but also contains a more diverse set of                               world dataset, our M5Product is, unlike traditional multi-
+modalities. A detailed comparison with other multi-modal                                     modal datasets, not a complete paired dataset and contains
+pre-training datasets is provided in Table 1.                                                samples with only a subset of modalities as well as long-
+Multi-modal pre-training for E-commerce products.                                            tailed distributed (Figure 3). We summarize the product
+Several vision-language pre-training models have been ex-                                    characteristics that are relayed by the different modalities
+plored for visual-text multi-modal learning in recent years.                                 in our dataset in Table 2, where APP, USA, SPEC, SELL,
+They can coarsely be divided into two categories: 1) Single-                                 PROD, MATE and CATE denote Appearance, Usage, Spec-
+stream models whose transformer layer operates collec-                                       ification, Selling Point, Production, Material and Category
+tively on the concatenation of the visual and text inputs,                                   Descriptions, respectively.
+e.g, VL-bert [42], Image-BERT [37], VideoBERT [44],                                          Quantitative analysis. 1) Diversity: The dataset consists
+MMT [12], HERO [26], VisualBERT [27] and UNITER [7].                                         of more than 6,000 classes covering various and massive
+2) Dual-stream models whose image and text inputs are                                        amounts of E-commerce products such as clothes, cosmet-
+not concatenated, such as ViLBERT [30], LXMERT [45],                                         ics, and instruments. Figure 1 illustrates the diversity of the
+CLIP [38] and DALL-E [39].                                                                   modalities and categories and we further provide a descrip-
+    Within E-commerce, fashion-based tasks have been ad-                                     tion of the data format and the collection process in Sec-
+dressed in among others FashionBERT [13], MAAF [11],                                         tion E of the supplementary materials. Finally, a quantita-
+Kaleido-BERT [59], M6 [28] and CAPTURE [55]. All ex-                                         2  We are authorised by the company to access and obtain the data. We
+isting studies in the E-commerce scenarios focus solely on                                   are further authorised to share the dataset and the detailed license is given
+the image and text modalities and none of the approaches                                     in Section A of the supplementary material 3 In this work we focus on
+                                                                                             core data modalities (image, text, video, audio, and table data) only and
+can utilize more modalities. Besides, all existing meth-                                     do not consider extracted feature representations such as OCR and Motion
+ods default to assigning the same contribution to different                                  embeddings that are extracted from core modalities as separate modalities.
+modalities when modeling multi-modal interactions.More                                       4 https://pypi.org/project/moviepy/
+
+
+
+
+                                                                                         3
+                                                                                                                 -               -           -
+                                                              -
+
+
+                                                                                                                                                              -
+
+
+                                          -
+
+
+
+
+                                                                                                                                                         ……
+                                                                                                                                                              -
+
+
+
+
+                                                                              -
+
+
+                                                                                                                                                              -
+
+
+
+
+                                                                                                                                                                  -
+
+
+
+
+                                                                                                 -
+
+Figure 2. An illustration of our M5Product benchmark. It consists of a five-modality E-commerce dataset with a more diverse and
+complex backgrounds collected from the real-world online-shopping website. It also proposes a SCALE model to capture the maximum
+modality complementary information for four common downstream tasks: 1) multi-modal retrieval, 2) fine-grained retrieval, 3) multi-
+modal classification, and 4) multi-modal clustering. The benchmark verifies the effectiveness of modality diversity in five widely used
+modalities.
+Design bracelet 18k emerald                                 LED step lights, foot lights,
+bracelet bracelet opening
+adjustable emerald one carat
+                                                            corner lights, outdoor
+                                                            waterproof embedded aisle step
+                                                                                                     how the dataset is split into training and test in Section D
+national inspection review                                  lights, hotel stairs night lights
+
+Supor 50FH9070Q electric
+                                                                                                     and how annotations are obtained in Section C. We further
+                                                            Moido fashion portable foldable
+pressure cooker household
+5L spherical kettle IH
+                                                            underwear drying sterilization
+                                                            box, maternal and baby products
+                                                                                                     provide a smaller split, referred to as subset, which is used
+multifunctional intelligent                                 UV ultraviolet sterilization dryer
+high pressure rice cooker for
+5-6 people                                                   Ukulele toy simulation
+                                                                                                     to show the difference in performance for a smaller dataset.
+Genuine bull electronic timer
+battery car electric car mobile
+                                                             children's small guitar beginners
+                                                             can play musical instruments            Finally, we provide further insights into the composition of
+phone charging automatic cut                                 boys and girls birthday gifts
+off/power switch socket 10A                                                                          the dataset (missing modalities, unimodal data analysis, and
+                                                                                                     data format) in supplementary Section F.
+         Figure 3. Training data distribution over whole categories.
+                                                                                                     4. Our Methodology
+tive analysis of the category and modality distributions can
+be found in Section F. Note that about 5% of products are                                               As shown in Figure 2, our SCALE framework consists
+unimodal samples e.g. only either contain images, captions,                                          of a self-harmonized contrastive learning module and a self-
+or tabular properties. 2) Quality: We further provide a com-                                         supervised multi-modal transformer. In this section, we first
+parison between our M5Product dataset and some widely-                                               provide the architectural design of SCALE in Section 4.1
+used datasets for multi-modal pre-training in Table 1. A                                             before describing the five masked tasks that enable the self-
+more extensive comparison with other multi-modal datasets                                            supervised learning of SCALE in Section 4.2. Finally, we
+can be found in Section H of the supplementary materials.                                            present the detailed learning process of SCALE and detail
+Compared with existing multi-modal datasets, M5Product                                               how multi-modal alignment is achieved in Section 4.3.
+is the first extremely large public real-world E-commerce
+product dataset that contains data of more than two modali-                                          4.1. Architectural Design of SCALE
+ties.                                                                                                   As depicted in Figure 2, SCALE is a typical single-
+    Moreover, our dataset contains a large amount of in-                                             stream transformer architecture. In the bottom part, the Im-
+stances, i.e., more than six million samples from the 6,232                                          age/Text/Table/Video/Audio embedding layers and trans-
+coarse categories. These abundant data will benefit several                                          formers aim to extract modality features and generate to-
+downstream tasks such as self-learning, weakly-supervised                                            ken features. Specifically, the text and table encoders are
+learning, multi-modal retrieval, cross-modal generation and                                          standard transformers to encode the caption and table in-
+fine-grained recognition.                                                                            formation of products, respectively. The image encoder in-
+Additional analysis. In the supplementary materials, we                                              stead takes proposals extracted by bottom-up-attention [3]
+provide dataset collection details in Section B and detail                                           as inputs, while ordinal frames sampled from the video are
+
+
+                                                                                                4
+fed into the video encoder. For the audio encoder, SCALE
+extracts MFCC [33] features from audio. After being pro-
+cessed by the separate modality encoders, the token features                                        Positive
+
+of different modalities are concatenated and fed into a Joint
+Co-Transformer (JCT) module to capture the token rela-
+                                                                                                  Negatives
+tionships between different modalities.
+Missing Modalities. Zero imputation of missing modali-                                       Contrastive Learning
+
+ties is leveraged to utilize all available data when training
+SCALE. We provide experimental evidence that SCALE
+benefits from the incomplete samples in Section I of the
+supplementary material.
+                                                                                                                       Inter-Modality Scores
+4.2. SCALE by Masked Multi-Modal Tasks                                                Inter-Modality Contrastive Learning
+
+    Similar to previous works, we utilize several pretext             Figure 4. The Inter-Modality Contrastive Learning module of our
+tasks (PRE) to facilitate self-supervised learning of                 SCALE framework.
+SCALE in the Joint Co-Transformer module. For modality-                  Given N data samples {(di , di )}N
+                                                                                                           (0)      (1)
+                                                                                                                 i=1 , where each
+wise feature learning from the image and text modalities,             sample has two modalities (0) and (1), we select the N
+we adopt the Masked Region Prediction task (MRP) and the              modality pairs as positive pairs in our contrastive learning.
+Masked Language Modeling task (MLM), respectively, af-                                          (0)   (1)
+                                                                      For each positive pair (di , di ), negative pairs are con-
+ter the JCT. Utilizing the characteristics of the table, video,                             (0)       (1)
+and audio modalities, we further propose a Mask Entity                structed by pairing di and di with the remaining N -1
+Modeling task (MEM), Mask Frame Prediction task (MFP),                samples from the other modality, resulting in 2(N -1) nega-
+                                                                                                        (0)  (1)
+and Mask Audio Modeling task (MAM) following a similar                tive pairs. For a modality pair (di , di ) and their embed-
+                                                                                        (0) (1)
+strategy of predicting masked tokens. In all masked tasks,            ding features (fi , fi ), the cross-modal contrastive loss
+the ground-truth labels are the features of masked areas. For         of each modality pair is:
+all masking tasks, 15% of the inputs are masked out and the                                                             
+                                                                                                               (0)   (1)
+                                                                                                   exp sim fi ,fi         /τ
+remaining inputs are used to reconstruct the masked infor-                   (0) (1)
+                                                                       LCL (di , di ) = − log P                                    ,
+                                                                                              1 N                 
+mation. Please note that unlike in the MLM task, where                                          P                     (m)
+                                                                                                  1[k6=i] exp sim fi ,fk
+                                                                                                                            (1−m)
+                                                                                                                                   /τ
+                                                                                                 m=0 k=1
+15% of individual words are masked, 15% of the entities                                                                             (2)
+(properties, brand names, etc.) are entirely masked out for           where sim is the cosine similarity, τ is the temperature pa-
+the MEM task. This drives our model to learn better table             rameter and 1[k6=i] is a binary indicator function, and 1=1
+representations to recover the masked inputs, which is illus-         for k 6= i and 0 otherwise.
+trated in Section 5.3. The loss function of the ith modality             In most prior work, only two modalities are considered
+is defined as:                                                        and Eq. 2 can be used. However, when considering trimodal
+                                                                      data or data with even more than three modalities, it is not
+  LMi (θ) = −Etmsk ∼t log Pθ (tmsk | t¬msk , M¬i ) ,       (1)        suitable to directly fit the loss function as it does not account
+                                                                      for the difference in complementary information that dif-
+where t¬msk denotes the unmasked tokens surrounding the               ferent modalities contribute. To solve this problem, we de-
+masked token tmsk , θ represents the network parameters,              fine a simple but effective self-harmonized method to model
+and Mi and M¬i are the ith modality and the remaining                 the complementary process of the inter-modal relationships.
+modalities, respectively.                                             We introduce a modality alignment score matrix, to encode
+                                                                      the relationships among the inter-modal losses LCL and the
+4.3. Self-harmonized Inter-Modality Contrastive
+                                                                      intra-modal losses LMi . The alignment score matrix S for
+     Learning
+                                                                      each data sample is initialized by a zero matrix and up-
+   Self-harmonized Inter-Modality Contrastive Learning                dated as free model parameters. To obtain modality im-
+(SIMCL) is at the core of our proposed SCALE frame-                   portance scores for each modality combination, we apply
+work. It aims to facilitate the semantic alignment between            the softmax function to S. Finally, the importance scores
+different modalities via a self-harmonized strategy for adap-         are multiplied to generate the modality alignment score S
+tive Inter-Modality Contrastive Learning (IMCL). For a                as S = S · softmax(S). The learning process is shown
+minibatch of modality samples D ∈ RB×M ×F , where B,                  in Figure 4 and illustrates that SIMCL takes full advantage
+M and F denote the batch size, number of modalities, and              of the inter-modal relationships. Given the modality align-
+embedding dimension, respectively, we first construct the             ment score S, the triangular part S5 is selected to weight
+contrastive loss between each modality.                               the inter-modal losses LCL and the diagonal part S\ is uti-
+
+
+                                                                  5
+lized to constrain the intra-modal losses LMi , resulting in                  using k-Means clustering and the same features as in the
+the weighted loss:                                                            classification setting. For product retrieval, we adopt the
+                                                                              widely used metrics mean Average Precision (mAP) and
+               PS5                               PS\                          Precision (Prec) [14, 31, 49] to evaluate the retrieval accu-
+    Ltotal =    Si,j LCLi,j (Si,j logiti,j ) +    Si LMi (Si logiti )         racy on the two retrieval tasks. For product classification
+                                                                    (3)       and clustering, all methods are evaluated using the Classifi-
+where logit is the the loss logit.                                            cation Precision (Classification accuracy), Normalized Mu-
+                                                                              tual Information (NMI) [52] and Purity metrics. In all ex-
+5. Experiments                                                                periments, models are trained on the training split. The pre-
+                                                                              trained model is then applied to extract the modality fea-
+Implementation Details. We use BERT [10] to initialize
+                                                                              tures of the gallery and test splits for the product retrieval
+the text transformer of our proposed SCALE framework,
+                                                                              and clustering tasks. For the classification task, we finetune
+while the remaining transformers are randomly initialized.
+                                                                              the pre-trained model on the classification subset containing
+Both the single-modality encoders and the multi-modal fu-
+                                                                              1,805 categories/classes and utilize the finetuned model to
+sion encoders consist of 6 transformer layers each, adding
+                                                                              extract the features of the classification test set.
+up to a total of 12 transformer layers. The hidden state size
+of each modality transformer is 768 and the maximum se-                       5.1. Modality Diversity
+quence length for the captions and tables are set to 36 and
+64, respectively. Using the same setting as in [30] 5 , we uti-                   To examine the performance of our proposed SCALE
+lize Faster R-CNN [40] with a backbone ResNet101 [15]                         framework and to verify the benefits of diverse modalities
+pre-trained on the Visual Genome dataset [23] to extract                      and dataset scale, we train SCALE with an increasing num-
+region features of selected 10 to 36 bounding boxes with                      ber of modalities and observe the variations in classification
+high-class detection probability for each image. We train                     and multi-modal retrieval performance both for the whole
+SCALE with a total batch size of 64 for 5 epochs using                        M5Product dataset and the subset. More specifically, fused
+the Adam optimizer [21] with a warm-up learning rate of                       features are extracted from the joint co-transformer (JCT)
+1e-4. Additional implementation details of our model are                      of our SCALE after finetuning for the classification task
+provided in Section G of the supplementary material.                          and after pre-training and finetuning for the (coarse) multi-
+Baselines. We compare SCALE to the following eight al-                        modal retrieval task. Results in Table 3 show that perfor-
+ternative pre-training methods that utilize image and text                    mance increases across all settings as modalities are added,
+modalities as well as combinations of both: Bert [10]                         illustrating the benefit of complementary modality informa-
+(Textbased ), Imagebased , ViLBERT [30], CLIP [38], VL-                       tion to learning multi-modality feature representations. It
+BERT [42], VisualBERT [27], UNITER [7] and CAP-                               can also be observed that modality gains are larger on the
+TURE [56]. Imagebased and BERT [10] are 12-layer trans-                       whole dataset, supporting Interesting Observation 1.
+formers based on the MLM (Mask Language Modeling) or                              We further provide results for an extensive set of modal-
+MRP (Mask Region Prediction) task using image or text                         ity combinations to verify SCALEs effectiveness in lever-
+modality, providing single-modal baselines for the product                    aging the diverse modalities of our M5Product dataset. Ta-
+retrieval, classification, and clustering tasks. To ensure a                  ble 4 provides results for the coarse- and fine-grained multi-
+fair comparison, the same hidden size of 768 is chosen for                    modal retrieval tasks as well as the classification task after
+all baselines.                                                                finetuning the model. As in the previous experiment, notice-
+Evaluation. We consider the following four downstream                         able improvements can be observed as additional modalities
+tasks to evaluate the learned representations: 1) Multi-                      are added. In particular, the addition of the text modality
+modal retrieval: This task aims to find the most relevant                     leads to high modality gains, verifying the benefits of in-
+target products using combinations of two or more modal-                      cluding more diverse modalities that can capture different
+ities. A pair is considered a match if both belong to the                     views of the same product. Interestingly, performance on
+same category; 2) Fine-grained multi-modal retrieval: Re-                     the coarse-grained retrieval task is significantly worse than
+trieval on an instance level, where only samples of the same                  on the fine-grained retrieval task in most cases, indicating
+product (i.e. color, model, shape, and style) are considered                  the complexity of the M5Product dataset and the diversity
+a match 6 ; 3) Multi-modal classification: Product category                   of the products in each category.
+classification given the multi-modal features extracted from                  Semantic Alignment. To additionally demonstrate the im-
+the joint co-transformer of SCALE using a linear classifier;                  portance of modality diversity, we compute the modality
+and 4) Multi-modal clustering: Product category clustering                    correlation, the average cosine similarity between image
+5 https://github.com/airsplay/py-bottom-up-attention  6 A more thor-          and text features as obtained by the JCT, for an increasing
+ough definition of the term same products and how instance-level labels       number of modalities. Figure 5 illustrates that the semantic
+are obtained is provided in the supplementary.                                alignment capability of the pre-training model increases as
+
+
+                                                                          6
+Table 3. The (pretrain/finetune) performance gains from sequentially adding more modalities using SCALE on the subset (top) and the
+whole dataset (bottom). The retrieval performances are based on the features extracted from pretrain and finetune stages.
+             Modality    Accuracy             mAP@1                  mAP@5               mAP@10              Prec@1                 Prec@5            Prec@10
+              Text           77.42         47.70 / 65.10         53.63 / 68.39         51.59 / 66.99       47.70 / 65.10       30.96 / 44.89         24.15 / 33.44
+             +Image          79.58         51.47 / 67.02         56.16 / 69.85         54.41 / 68.43       51.47 / 67.02       33.41 / 46.29         25.55 / 34.29
+             +Table          82.83         57.14 / 67.97         61.71 / 70.34         59.64 / 69.38       57.14 / 67.97       38.02 / 46.85         28.99 / 34.36
+             +Video          84.31         58.57 / 69.79         63.15 / 72.30         61.02 / 70.67       58.57 / 69.79       39.26 / 47.44         29.56 / 34.78
+             +Audio          85.50         58.72 / 70.62         63.17 / 73.02         61.05 / 71.50       58.72 / 70.62       39.66 / 48.20         30.32 / 35.35
+              Text           81.11         55.82 / 69.47        60.74 / 72.74          59.02 / 71.79       55.82 / 69.47       36.99 / 48.76         28.04 / 35.84
+             +Image          83.68         59.81 / 71.51        64.13 / 74.51          62.18 / 73.21       59.81 / 71.51       38.97 / 49.27         30.15 / 36.72
+             +Table          84.63         61.32 / 72.34        65.53 / 74.86          63.62 / 73.47       61.32 / 72.34       40.66 / 49.77         30.78 / 36.95
+             +Video          84.90         62.65 / 72.59        65.67 / 75.05          63.87 / 73.62       62.65 / 72.59       41.18 / 49.96         31.01 / 37.04
+             +Audio          86.57         63.56 / 73.77        67.51 / 76.17          65.39 / 74.73       63.56 / 74.01       42.68 / 50.78         32.17 / 37.42
+
+Table 4. The performance of our model SCALE under different modality combinations on the coarse- and fine-grained multi-modal
+retrieval and classification tasks. In the following, I, T, Tab, V and A denote image, text, table, video and audio modalities, respectively.
+            Modality Combinations          Accuracy           mAP@1               mAP@5           mAP@10             Prec@1            Prec@5           Prec@10
+                     I+Tab                   62.00       44.53 / 45.97          49.62 / 51.89    48.28 / 50.33     44.53 / 45.97     30.89 / 34.08    23.65 / 28.63
+                      I+V                    34.57       20.57 / 36.29          26.78 / 42.72    26.41 / 41.38     20.57 / 36.29     14.71 / 26.52    11.78 / 22.34
+                      I+A                    27.67       15.73 / 35.64          20.85 / 42.96    20.72 / 41.70     15.73 / 35.64     11.16 / 27.02     9.47 / 22.78
+                      I+T                    79.58       67.02 / 62.20          69.85 / 66.97    68.43 / 64.21     67.02 / 62.20     46.29 / 49.85    34.29 / 42.36
+                     I+T+V                   80.34       67.35 / 63.05          70.29 / 67.37    68.95 / 64.62     67.35 / 63.05     46.45 / 50.85    34.33 / 43.02
+                     I+T+A                   79.73       67.19 / 64.21          70.15 / 68.25    68.64 / 65.35     67.19 / 64.21     46.33 / 50.42    33.32 / 42.93
+                    I+Tab+V                  63.09       45.94 / 47.33          51.32 / 53.33    49.78 / 51.28     45.94 / 47.33     31.69 / 35.81    24.12 / 30.05
+                    I+T+Tab                  82.83       67.97 / 68.30          70.34 / 72.67    69.38 / 70.07     67.97 / 68.30     46.85 / 57.44    34.36 / 50.59
+                   I+T+Tab+V                 84.31       69.79 / 68.40          72.30 / 72.91    70.67 / 70.31     69.79 / 68.40     47.44 / 57.60    34.78 / 51.47
+                   I+Tab+A+V                 63.54       47.24 / 48.24          52.07 / 53.89    50.41 / 51.89     47.24 / 48.24     32.19 / 36.29    24.47 / 30.74
+                    I+T+A+V                  80.36       68.80 / 66.43          70.84 / 71.12    69.71 / 68.16     68.80 / 66.43     47.24 / 54.03    34.57 / 47.53
+                   I+T+Tab+A                 84.33       70.23 / 68.97          72.59 / 73.07    70.94 / 70.77     70.23 / 68.97     47.58 / 57.89    35.33 / 51.60
+                I+T+Tab+A+V                  85.50       70.62 / 69.25          73.02 / 74.08    71.50 / 71.02     70.62 / 69.25     48.20 / 58.76    35.35 / 52.05
+
+
+Table 5. Comparisons of image and text modalities on the subset                                 Table 7. Analysis of different masked tasks (token mask (MLM)
+(top) and the whole dataset (bottom).                                                           and entity mask (MEM)) for the table modality.
+            Method           mAP@1         Accuracy          NMI       Purity                        Tasks       Accuracy          mAP@1,5,10             Prec@1,5,10
+         Imagebased             15.17         27.67          63.62     54.86                         MLM          84.05     68.34 / 71.19 / 69.43      68.34 / 47.02 / 34.43
+         BERT [10]              47.70         77.42          76.35     68.80                         MEM          85.50     70.62 / 73.02 / 71.50      70.62 / 48.20 / 35.35
+       VL-BERT [42]             49.31         78.13          80.51     71.91
+       ViLBERT [30]             49.18         78.24          80.51     71.91
+      VisualBERT [27]           49.20         78.41          81.23     72.39                    Table 8. Analysis of treating text and table modalities separately
+          CLIP [38]             49.39         78.35          81.75     72.50                    (T/Tab) or stacked together (T+Tab).
+        UNITER [7]              49.87         78.54          82.71     73.58                        Formats Accuracy  mAP@1,5,10             Prec@1,5,10
+      CAPTURE [38]              50.30         78.69          83.06     74.14
+                                                                                                     T+Tab   84.61 70.15 / 72.19 / 70.49 69.15 / 47.40 / 34.40
+      SCALE (Ours)              51.47         79.58          84.23     75.81
+                                                                                                     T/Tab   85.50 70.62 / 73.02 / 71.50 70.62 / 48.20 / 35.35
+         Imagebased             22.67         30.14          67.49     59.64
+         BERT [10]              55.82         82.11          87.30     71.75
+          CLIP [38]             57.73         82.60          90.49     76.48
+       SCALE (Ours)             59.81         83.68          92.01     78.34                    5.2. Multi-modal Downstream Tasks
+                                                                                                   We evaluate SCALE on the M5Product dataset for the
+           Table 6. Ablation study of the SIMCL module.                                         product retrieval, classification, and clustering tasks and
+                                                                                                compare results to several benchmark approaches in Ta-
+ #   IMCL     PRE     Accuracy          mAP@1,5,10                   Prec@1,5,10
+                                                                                                ble 5. For the Imagebased and BERT [10] models, which
+ 1                      83.77        68.45 / 70.92 / 69.30     67.56 / 46.37 / 34.12
+ 2     X                84.44        69.14 / 71.96 / 70.13     69.14 / 47.15 / 34.84            only utilize the image and text features, respectively, the ex-
+ 3             X        84.09        69.31 / 71.59 / 69.85     69.31 / 46.72 / 34.42            tracted features are fed directly into the classification model.
+ 4     X       X        85.50        70.62 / 73.02 / 71.50     70.62 / 48.20 / 35.35
+                                                                                                For our SCALE approach, we utilize the fused modality
+                                                                                                features generated by the joint co-transformer, pre-trained
+                                                                                                on both image and text modalities. Only utilizing the image
+                                                                                                and text modalities allows us to facilitate a fair compari-
+the number of modalities grows.                                                                 son to the recent state-of-the-art approaches ViLBERT [30],
+
+
+                                                                                          7
+                          0.9650                                                           Image+               illustrates that improvements of approximately 2% are ob-
+                                                                                           Text+
+                          0.9625                                                           Table+
+                                                                                                                tained in the classification task and more than 2% for the
+                                                                                           Video+               coarse-grained retrieval task when including both, high-
+                          0.9600                                                           Audio                lighting the importance of both the Pretext tasks and the
+  Modality Correlations
+
+
+
+
+                          0.9575
+                                                                                                                effective modality fusion of SIMCL. We further analyze
+                                                                    Image+                                      the effect of the MEM pretext task for the table modal-
+                          0.9550                                    Text+                                       ity and show the benefit of masking out complete enti-
+                                                                    Table+                                      ties over masking out individual tokens (MLM) in Table 7.
+                          0.9525                          Image+    Video                      ng
+                                                                                            ovi                 This benefit can be attributed to the fact that MEM en-
+                                                 Image+
+                                                          Text+                          pr
+                          0.9500                          Table                        Im                       sures that SCALE learns representations that encode the
+                                                                                   n
+                                                 Text                           io
+                                                                             lat                                semantic information of complete entities. Finally, we eval-
+                          0.9475                                         rr e
+                                                                    Co                                          uate the performance of modelling the text and the table
+                          0.9450 1           2         3         4                     5            6           modalities using individual modality encoders and compare
+                                                     Modality Numbers
+                                                                                                                SCALEs retrieval performance to a baseline where text and
+  Figure 5. Variations of modality correlation gains with the                                                   table information is concatenated and fed to a single trans-
+  number of modalities.                                                                                         former, resembling the process of BERT [10]. By modelling
+                                                                                                                both modalities individually, results in Table 8 illustrate that
+                                                                                                                more information can be preserved and we hypothesize that
+                                                                                                                using a single transformer leads to a loss in table modal-
+                                                                                                                ity information for the benefit of the more expressive text
+                                                                                                                modality.
+                                                                                                                    Figure 6 shows t-SNE visualizations of the extracted fea-
+                                                                                                                tures for the JCT module of our SCALE model and the al-
+                                                                                                                ternative approach ViLBert [30] on the M5Product dataset.
+                                                                                                                SCALE not only better distinguishes different classes but
+                                   (a) VILBERT                      (b) SCALE                                   also improves class compactness compared to the ViLBert
+Figure 6. Visualize the embeddings generated by SCALE and                                                       model. Further, the attention attribution for different modal-
+VILBERT via t-SNE. Points belonging to the same category are                                                    ities are shown in Figure 7 and verify that the visual features
+of the same color. Best viewed in color.                                                                        generated by SCALE are object-oriented and semantically
+ … women’s                           … green leather … lectern  …bracelet                        … shoe         interpretable.
+ watch …                              sneakers … Speaker desk … 18K gold…                       cabinet …
+
+                                                                                                                6. Limitations and future work
+                                                                                                                   The experimental evaluation showed that SCALE is able
+                                                                                                                to learn efficient representations from a large number of
+                                                                                                                modalities for retrieval, classification, and clustering. How-
+                                                                                                                ever, more evaluation of the generative capabilities of the
+                                                                                                                models representations is lacking and tasks such as image
+                                                                                                                and caption generation could be promising directions to ex-
+                                                                                                                plore. We further provide some of SCALEs failure cases in
+Figure 7. Attention attribution over proposals learned by our SCALE.                                            supplementary Section J.
+                                                                                                                Potential negative societal impact. As a result of the strict
+CLIP [38], VL-BERT [42], VisualBERT [27], UNITER [7]                                                            ethical considerations used in the data collection process,
+and CAPTURE [56]. Comparing our SCALE framework                                                                 where among others personally identifiable information has
+to the unimodal models, Imagebased and Bert [10], we                                                            been removed, M5Product does not pose any ethical risks.
+observe that exploiting multi-modal data significantly im-
+proves the performance across all tasks. We further observe
+that SCALE, by leveraging SIMCL, can efficiently fuse the
+                                                                                                                7. Conclusion and Discussion
+modalities and outperform all the baseline approaches (In-                                                         To facilitate multi-modal pre-training, we present the
+teresting Observation 2).                                                                                       M5Product dataset, which is the largest available multi-
+                                                                                                                modal E-commerce product dataset, consisting of five core
+5.3. Ablation Studys and Visualization
+                                                                                                                modalities (image, text, table, video, and audio). To fur-
+  To explore how SIMCL influences IMCL and the                                                                  ther promote multi-modal research in retail and increase
+Pretext tasks, we conduct several ablation studies. Table 6                                                     seller and buyer engagement, we also propose the novel
+
+
+                                                                                                            8
+SCALE multi-modal pre-training framework. By utiliz-                      [8] Tat-Seng Chua, Jinhui Tang, Richang Hong, Haojie Li, Zhip-
+ing Self-harmonized Inter-Modality Contrastive Learning                       ing Luo, and Yantao Zheng. NUS-WIDE: a real-world web
+(SIMCL), SCALE is able to model and exploit modal-                            image database from national university of singapore. In
+ity relationships effectively and outperforms previous ap-                    CIVR, 2009. 2, 3, 14
+proaches on the M5Product multi-modal retrieval, classi-                  [9] Charles Corbiere, Hedi Ben-Younes, Alexandre Ramé, and
+fication, and clustering tasks. We believe that both the                      Charles Ollion. Leveraging weakly annotated data for fash-
+                                                                              ion image retrieval and label prediction. In ICCV Workshops,
+dataset and the proposed framework work will inspire re-
+                                                                              pages 2268–2274, 2017. 2, 3, 14
+search on scaling multi-modal pre-training beyond the com-
+                                                                         [10] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina
+monly used image and text modalities.
+                                                                              Toutanova.       Bert: Pre-training of deep bidirectional
+                                                                              transformers for language understanding. arXiv preprint
+8. Acknowledgement                                                            arXiv:1810.04805, 2018. 6, 7, 8, 12
+   This     work      was    supported     in   part    by               [11] Eric Dodds, Jack Culpepper, Simao Herdade, Yang Zhang,
+Shenzhen        Fundamental        Research       Program                     and Kofi Boakye.         Modality-agnostic attention fusion
+(Project No.            RCYX20200714114642083,         No.                    for visual search with text feedback.          arXiv preprint
+                                                                              arXiv:2007.00145, 2020. 3
+JCYJ20190807154211365), National Key R&D Pro-
+                                                                         [12] Valentin Gabeur, Chen Sun, Karteek Alahari, and Cordelia
+gram of China (2021ZD0112100), and CAAI-Huawei
+                                                                              Schmid. Multi-modal transformer for video retrieval. In
+MindSpore Open Fund . We thank MindSpore for the
+                                                                              Andrea Vedaldi, Horst Bischof, Thomas Brox, and Jan-
+partial support of this work, which is a new deep learning                    Michael Frahm, editors, ECCV, volume 12349, pages 214–
+computing framwork7 , and supported by Guangdong                              229. Springer, 2020. 3
+Provincial Key Laboratory of Fire Science and Intelligent                [13] Dehong Gao, Linbo Jin, Ben Chen, Minghui Qiu, Peng Li,
+Emergency Technology, Guangzhou 510006, China.                                Yi Wei, Yi Hu, and Hao Wang. Fashionbert: Text and im-
+                                                                              age matching with adaptive loss for cross-modal retrieval. In
+References                                                                    SIGIR, pages 2251–2260, 2020. 3
+    [1] Open images dataset.                https://storage.             [14] Yunchao Gong, Svetlana Lazebnik, Albert Gordo, and
+        googleapis.com/openimages/web/index.                                  Florent Perronnin. Iterative quantization: A procrustean
+        html/, 2018. 2, 14                                                    approach to learning binary codes for large-scale im-
+    [2] Huda AlAmri, Vincent Cartillier, Abhishek Das, Jue Wang,              age retrieval. IEEE Trans. Pattern Anal. Mach. Intell.,
+        Anoop Cherian, Irfan Essa, Dhruv Batra, Tim K. Marks,                 35(12):2916–2929, 2013. 6
+        Chiori Hori, Peter Anderson, Stefan Lee, and Devi Parikh.        [15] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun.
+        Audio visual scene-aware dialog. In CVPR, pages 7558–                 Deep residual learning for image recognition. In CVPR,
+        7567, 2019. 2, 14                                                     pages 770–778, 2016. 6, 12
+    [3] Peter Anderson, Xiaodong He, Chris Buehler, Damien               [16] Jack Hessel and Lillian Lee. Does my multimodal model
+        Teney, Mark Johnson, Stephen Gould, and Lei Zhang.                    learn cross-modal interactions? it’s harder to tell than you
+        Bottom-up and top-down attention for image captioning and             might think! In EMNLP, pages 861–877, 2020. 1
+        visual question answering. In CVPR, pages 6077–6086,             [17] Yuting Hu, Liang Zheng, Yi Yang, and Yongfeng Huang.
+        2018. 4                                                               Twitter100k: A real-world dataset for weakly supervised
+    [4] Stanislaw Antol, Aishwarya Agrawal, Jiasen Lu, Margaret               cross-media retrieval. IEEE Trans. Multim., 20(4):927–938,
+        Mitchell, Dhruv Batra, C. Lawrence Zitnick, and Devi                  2018. 2, 14
+        Parikh. VQA: Visual Question Answering. In ICCV, pages           [18] Yu Huang, Chenzhuang Du, Zihui Xue, Xuanyao Chen,
+        2425–2433, 2015. 2, 14                                                Hang Zhao, and Longbo Huang. What makes multi-
+    [5] Soravit Changpinyo, Piyush Sharma, Nan Ding, and Radu                 modal learning better than single (provably). arXiv preprint
+        Soricut. Conceptual 12m: Pushing web-scale image-text pre-            arXiv:2106.04538, 2021. 1
+        training to recognize long-tail visual concepts. In CVPR,        [19] Keith Ito and Linda Johnson. The lj speech dataset. https:
+        pages 3558–3568, 2021. 2, 3, 14                                       //keithito.com/LJ-Speech-Dataset/, 2017. 2,
+    [6] Delong Chen, Fan Liu, Xiaoyu Du, Ruizhuo Gao, and Feng                14
+        Xu. Mep-3m: A large-scale multi-modal e-commerce prod-           [20] Yunseok Jang, Yale Song, Youngjae Yu, Youngjin Kim, and
+        ucts dataset. 2021. 3, 14                                             Gunhee Kim. TGIF-QA: toward spatio-temporal reasoning
+    [7] Yen-Chun Chen, Linjie Li, Licheng Yu, Ahmed El Kholy,                 in visual question answering. In CVPR, pages 1359–1367,
+        Faisal Ahmed, Zhe Gan, Yu Cheng, and Jingjing Liu.                    2017. 2, 14
+        UNITER: universal image-text representation learning. In         [21] Diederik P. Kingma and Jimmy Ba. Adam: A method for
+        Andrea Vedaldi, Horst Bischof, Thomas Brox, and Jan-                  stochastic optimization. In ICLR, 2015. 6, 14
+        Michael Frahm, editors, ECCV, volume 12375 of Lecture            [22] Josip Krapac, Moray Allan, Jakob J. Verbeek, and Frédéric
+        Notes in Computer Science, pages 104–120. Springer, 2020.             Jurie. Improving web image search results using query-
+        2, 3, 6, 7, 8                                                         relative classifiers. In CVPR, pages 1094–1101, 2010. 2,
+7   https://www.mindspore.cn/                                                 3, 14
+
+
+                                                                     9
+[23] Ranjay Krishna, Yuke Zhu, Oliver Groth, Justin Johnson,              [37] Di Qi, Lin Su, Jia Song, Edward Cui, Taroon Bharti, and
+     Kenji Hata, Joshua Kravitz, Stephanie Chen, Yannis Kalan-                 Arun Sacheti. Imagebert: Cross-modal pre-training with
+     tidis, Li-Jia Li, David A. Shamma, Michael S. Bernstein, and              large-scale weak-supervised image-text data. arXiv preprint
+     Li Fei-Fei. Visual genome: Connecting language and vision                 arXiv:2001.07966, 2020. 3
+     using crowdsourced dense image annotations. Int. J. Com-             [38] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya
+     put. Vis., 123(1):32–73, 2017. 2, 6, 14                                   Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry,
+[24] Jie Lei, Licheng Yu, Mohit Bansal, and Tamara L. Berg.                    Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen
+     TVQA: localized, compositional video question answering.                  Krueger, and Ilya Sutskever. Learning transferable visual
+     In EMNLP, pages 1369–1379, 2018. 2, 14                                    models from natural language supervision. In ICML, pages
+[25] Chia-Hsuan Li, Szu-Lin Wu, Chi-Liang Liu, and Hung-yi                     8748–8763, 2021. 2, 3, 6, 7, 8
+     Lee. Spoken squad: A study of mitigating the impact of               [39] Aditya Ramesh, Mikhail Pavlov, Gabriel Goh, Scott Gray,
+     speech recognition errors on listening comprehension. In                  Chelsea Voss, Alec Radford, Mark Chen, and Ilya Sutskever.
+     ISCA, pages 3459–3463, 2018. 2, 3, 14                                     Zero-shot text-to-image generation. In Marina Meila and
+[26] Linjie Li, Yen-Chun Chen, Yu Cheng, Zhe Gan, Licheng                      Tong Zhang, editors, ICML, volume 139 of Proceedings
+     Yu, and Jingjing Liu.          HERO: hierarchical encoder                 of Machine Learning Research, pages 8821–8831. PMLR,
+     for video+language omni-representation pre-training. In                   2021. 3
+     EMNLP, pages 2046–2065, 2020. 3
+                                                                          [40] Shaoqing Ren, Kaiming He, Ross B. Girshick, and Jian Sun.
+[27] Liunian Harold Li, Mark Yatskar, Da Yin, Cho-Jui Hsieh,
+                                                                               Faster R-CNN: towards real-time object detection with re-
+     and Kai-Wei Chang. Visualbert: A simple and performant
+                                                                               gion proposal networks. IEEE Trans. Pattern Anal. Mach.
+     baseline for vision and language. CoRR, abs/1908.03557,
+                                                                               Intell., 39(6):1137–1149, 2017. 6
+     2019. 2, 3, 6, 7, 8
+                                                                          [41] Piyush Sharma, Nan Ding, Sebastian Goodman, and Radu
+[28] Junyang Lin, Rui Men, An Yang, Chang Zhou, Ming Ding,
+                                                                               Soricut. Conceptual captions: A cleaned, hypernymed, im-
+     Yichang Zhang, Peng Wang, Ang Wang, Le Jiang, Xianyan
+                                                                               age alt-text dataset for automatic image captioning. In ACL,
+     Jia, Jie Zhang, Jianwei Zhang, Xu Zou, Zhikang Li, Xi-
+                                                                               pages 2556–2565, 2018. 2, 3, 14
+     aodong Deng, Jie Liu, Jinbao Xue, Huiling Zhou, Jianxin
+     Ma, Jin Yu, Yong Li, Wei Lin, Jingren Zhou, Jie Tang, and            [42] Weijie Su, Xizhou Zhu, Yue Cao, Bin Li, Lewei Lu, Furu
+     Hongxia Yang. M6: A chinese multimodal pretrainer. CoRR,                  Wei, and Jifeng Dai. VL-BERT: pre-training of generic
+     abs/2103.00823, 2021. 3                                                   visual-linguistic representations. In ICLR, 2020. 2, 3, 6,
+[29] Tsung-Yi Lin, Michael Maire, Serge J. Belongie, James                     7, 8
+     Hays, Pietro Perona, Deva Ramanan, Piotr Dollár, and                [43] Alane Suhr, Stephanie Zhou, Ally Zhang, Iris Zhang, Huajun
+     C. Lawrence Zitnick. Microsoft COCO: common objects in                    Bai, and Yoav Artzi. A corpus for reasoning about natural
+     context. In ECCV, pages 740–755, 2014. 2, 3, 14                           language grounded in photographs. In ACL, pages 6418–
+[30] Jiasen Lu, Dhruv Batra, Devi Parikh, and Stefan Lee. Vilbert:             6428, 2019. 2, 14
+     Pretraining task-agnostic visiolinguistic representations for        [44] Chen Sun, Austin Myers, Carl Vondrick, Kevin Murphy, and
+     vision-and-language tasks. In NIPS, pages 13–23, 2019. 2,                 Cordelia Schmid. Videobert: A joint model for video and
+     3, 6, 7, 8                                                                language representation learning. In ICCV, pages 7463–
+[31] Xiaoqiang Lu, Xiangtao Zheng, and Xuelong Li. Latent se-                  7472, 2019. 3
+     mantic minimal hashing for image retrieval. IEEE Trans.              [45] Hao Tan and Mohit Bansal. LXMERT: learning cross-
+     Image Process., 26(1):355–368, 2017. 6                                    modality encoder representations from transformers. In
+[32] Antoine Miech, Dimitri Zhukov, Jean-Baptiste Alayrac,                     EMNLP, pages 5099–5110, 2019. 2, 3
+     Makarand Tapaswi, Ivan Laptev, and Josef Sivic.                      [46] Makarand Tapaswi, Yukun Zhu, Rainer Stiefelhagen,
+     Howto100m: Learning a text-video embedding by watching                    Antonio Torralba, Raquel Urtasun, and Sanja Fidler.
+     hundred million narrated video clips. In ICCV, pages                      Movieqa: Understanding stories in movies through question-
+     2630–2640, 2019. 2, 3, 14                                                 answering. In CVPR, pages 4631–4640, 2016. 2, 14
+[33] Ksr Murty and B. Yegnanarayana. Combining evidence from
+                                                                          [47] Xin Wang, Jiawei Wu, Junkun Chen, Lei Li, Yuan-Fang
+     residual phase and mfcc features for speaker recognition.
+                                                                               Wang, and William Yang Wang. Vatex: A large-scale, high-
+     IEEE Signal Processing Letters, 13(1):52–55, 2005. 5, 13
+                                                                               quality multilingual dataset for video-and-language research.
+[34] Vicente Ordonez, Girish Kulkarni, and Tamara L. Berg.
+                                                                               In ICCV, pages 4580–4590, 2019. 2, 14
+     Im2text: Describing images using 1 million captioned pho-
+     tographs. In NIPS, pages 1143–1151, 2011. 2, 14                      [48] Xiu-Shen Wei, Quan Cui, Lei Yang, Peng Wang, and
+[35] Adam Paszke, Sam Gross, Soumith Chintala, Gregory                         Lingqiao Liu. Rpc: A large-scale retail product checkout
+     Chanan, Edward Yang, Zachary DeVito, Zeming Lin, Al-                      dataset. arXiv preprint arXiv:1901.07249, 2019. 2, 3, 14
+     ban Desmaison, Luca Antiga, and Adam Lerer. Automatic                [49] Yair Weiss, Antonio Torralba, and Robert Fergus. Spectral
+     differentiation in pytorch. In NIPS Workshop, 2017. 14                    hashing. In NIPS, pages 1753–1760, 2008. 6
+[36] Yuxin Peng, Xin Huang, and Yunzhen Zhao. An overview                 [50] Jacob Whitehill, Paul Ruvolo, Tingfan Wu, Jacob Bergsma,
+     of cross-media retrieval: Concepts, methodologies, bench-                 and Javier R. Movellan. Whose vote should count more: Op-
+     marks, and challenges. IEEE Trans. Circuits Syst. Video                   timal integration of labels from labelers of unknown exper-
+     Technol., 28(9):2372–2385, 2018. 3, 14                                    tise. In NIPS, pages 2035–2043, 2009. 12
+
+
+                                                                     10
+[51] Jun Xu, Tao Mei, Ting Yao, and Yong Rui. MSR-VTT: A
+     large video description dataset for bridging video and lan-
+     guage. In CVPR, pages 5288–5296, 2016. 2, 14
+[52] Chengfu Yang and Zhang Yi. Document clustering using lo-
+     cality preserving indexing and support vector machines. Soft
+     Comput., 12(7):677–683, 2008. 6
+[53] Peter Young, Alice Lai, Micah Hodosh, and Julia Hocken-
+     maier. From image descriptions to visual denotations: New
+     similarity metrics for semantic inference over event descrip-
+     tions. Trans. Assoc. Comput. Linguistics, 2:67–78, 2014. 2,
+     3, 14
+[54] Amir Zadeh, Paul Pu Liang, Soujanya Poria, Erik Cambria,
+     and Louis-Philippe Morency. Multimodal language analysis
+     in the wild: CMU-MOSEI dataset and interpretable dynamic
+     fusion graph. In ACL, pages 2236–2246, 2018. 3, 14
+[55] Xunlin Zhan, Yangxin Wu, Xiao Dong, Yunchao Wei, Min-
+     long Lu, Yichi Zhang, Hang Xu, and Xiaodan Liang. Prod-
+     uct1m: Towards weakly supervised instance-level product
+     retrieval via cross-modal pretraining. In ICCV, 2021. 2, 3,
+     14
+[56] Xunlin Zhan, Yangxin Wu, Xiao Dong, Yunchao Wei,
+     Minlong Lu, Yichi Zhang, Hang Xu, and Xiaodan Liang.
+     Product1m: Towards weakly supervised instance-level
+     product retrieval via cross-modal pretraining.        CoRR,
+     abs/2107.14572, 2021. 2, 6, 8
+[57] Luowei Zhou, Chenliang Xu, and Jason J. Corso. To-
+     wards automatic learning of procedures from web instruc-
+     tional videos. In AAAI, pages 7590–7598, 2018. 2, 14
+[58] Tao Zhou, Mingxia Liu, Huazhu Fu, Jun Wang, Jianbing
+     Shen, Ling Shao, and Dinggang Shen. Deep multi-modal
+     latent representation learning for automated dementia diag-
+     nosis. In MICCAI, pages 629–638, 2019. 1
+[59] Mingchen Zhuge, Dehong Gao, Deng-Ping Fan, Linbo Jin,
+     Ben Chen, Haoming Zhou, Minghui Qiu, and Ling Shao.
+     Kaleido-bert: Vision-language pre-training on fashion do-
+     main. In CVPR, pages 12647–12657, 2021. 3
+
+
+
+
+                                                                     11
+A. Dataset License                                                      define several rules to determine the ”same product” con-
+                                                                        dition and provide them as instructions to the annotators.
+  Our M5Product dataset is released under CC BY-                        Images contain the same product, if:
+NC-SA 4.0 license and can freely be used for non-
+commercial purposes. More detailed information can                        1. The two images are in different conditions (e.g., back-
+be found at https://xiaodongsuper.github.                                    grounds, angles, etc), but the products in both images
+io/M5Product_dataset/terms_of_use.html,                                      are the same.
+which also provides dataset details and usage guidance.
+Note: For anonymity reasons, the link is not included                     2. They should have the same color/model/shape/style, or
+during the review process.                                                   other features that can be distinguished by humans.
+
+B. Annotation Collection                                                  3. The caption has the same product name but the product
+                                                                             description differs.
+   We resort to crowd-sourcing to obtain human annota-
+tions for the product retrieval task. Specifically, we present            4. They share more than one characteristic such as ap-
+human annotators with a matching task, where annotators                      pearances, materials, colors and so on.
+are asked to select the matching image-text pairs for a given
+                                                                           To ensure labeling consistency, each annotation pair is
+query image-text pair. In our crowdsourcing system, each
+                                                                        labeled by five human workers in the crowd-sourced plat-
+matching task is presented to five different human annota-
+                                                                        form. In the process, we first make a small dataset from
+tors and a typical example of our interface is shown in Fig-
+                                                                        our query list as a Gold Problem to evaluate the annota-
+ure 8. The left part of the interface shows the current query
+                                                                        tion capability of each human worker. Based on the labeled
+data (image and text), while the right side depicts an exam-
+                                                                        results (”Matched” or ”Not Matched”) from human work-
+ple from the candidate list. The annotators are then asked to
+                                                                        ers and their annotation capability, we utilize the weighted
+choose from two options: mismatched and uncertain. The
+                                                                        GLAD [50] inference algorithm to determine the final ac-
+default labelling option is matched. The interface also dis-
+                                                                        cepted labels.
+plays the number of examples that have been reviewed and
+the total amount of examples to review. Each annotation
+task, can be considered as a binary classification task for             D. Dataset Split
+the human worker, where he/she has to decide if the pair                   The M5Product dataset is split into several parts to en-
+is a match or not. For each estimated task, the annotators              sure consistent training and evaluation of the models on the
+receive a payment of 3 cents RMB.                                       various tasks. The training set contains 4,423,160 samples
+                                                                        from 3,593 classes.
+C. Annotation
+    The retrieval task annotation for any query sample con-             Retrieval To evaluate models on the retrieval tasks, the
+sists of all the matched instances in the gallery split. To con-        remaining data is split into gallery-c and query-c sets, which
+struct a reliable gallery set, we first use a ResNet50 [15] and         are used for the coarse-grained retrieval task, and gallery-fg
+Bert-Base [10] to extract features and construct the query              and query-fg sets, which are used for the fine-grained re-
+candidate pool from all the data that is not contained in the           trieval task. The difference between the two retrieval tasks
+training subset. Specifically, we sample an instance from               lies in the granularity of their annotation. In the fine-grained
+a category that contains more than 2,000 instances and ex-              task, only identical products are considered a match (for ex-
+tract the image and text features. We then concatenate the              ample, all IPHONE 11 Black), while in the coarse-grained
+features and compute the cosine similarity to all other in-             task, category labels are being used to group products from
+stances of the dataset to produce a pre-ranked candidate list           each category (for example, all phones are considered a
+in order to minimize the labelling cost. The final size of              match).
+the candidate shortlist for each query is 500, which is about               To construct the fine-grained sets, we extracted all cos-
+0.01% of the whole gallery split. During the crowd-sourced              metics categories and, using the abovementioned annota-
+annotation process, human workers review both images and                tion procedure, finally obtained 1,991 query-fg samples and
+captions in the candidate list to select which samples are              117,858 gallery-fg samples. The query-c and gallery-c
+matched with the query instance.                                        sets contain 24,410 and 1,197,905 samples, respectively.
+    Annotation Rules. It is quite challenging to define                 Among the samples in the gallery-c set, 249,614 samples
+whether two images contain the same product when critical               are matched with samples in the query-c set, while 948,291
+aspects are not given in their captions and images. In our              samples do not match. These unmatched samples are added
+annotations, we use product images and their captions as                to the gallery-c set to increase the difficulty of the retrieval
+the primary materials for gallery construction. Hence, we               task. We further report the finetuned retrieval performance
+
+
+                                                                   12
+                     
+
+
+
+
+         1                         1
+
+
+             
+                         
+                   
+                      
+                     
+                                                                                                2
+                           
+               
+
+
+
+
+                                                                                                                  2
+                                       Figure 8. UI for huamn annotation on product retrieval task.
+
+
+in the paper, which corresponds to retrieval performance af-            frames. Then the audio frames are transformed into spectro-
+ter finetuning the model using the classification training set          grams using Mel-Frequency Cepstral Coefficients (MFCC)
+(see next paragaraph).                                                  [33]. We set the frame size and hop size as 1,024 and 256,
+                                                                        respectively.
+Finetuning, Classification and Clustering For the clas-
+sification and clustering tasks, we sampled 1,805 categories            Tabular data are a special kind of database that records
+from the whole dataset and obtained 18,526 train samples                some additional product characteristics such as appearance,
+and 4,632 test samples. We first finetune our SCALE us-                 purpose and producer. The tabular data is indexed by the
+ing the classification training set and then extract features           product ID and collected from the whole product database.
+from the finetuned model to perform the classification and              There are 5,679 different types of property information and
+clustering tasks.                                                       24,398,673 unique values.
+
+E. Data Format
+    The dataset consists of 6,313,067 products uploaded by
+1,000,517 merchants, where merchant information has been                F. Unimodal and unpair analysis
+removed to ensure anonymity. In the following, we outline
+the different modalities:                                                   1) Unimodal analysis: Figure 9 gives the video, text
+Image data Each product has at least five product images,               and merchant distributions. From the figure, we can find
+where the first image is the main image that gives the de-              that the video duration, the text length and the merchant
+tailed overview of the product, while the rest depict its func-         number range from 1 to 60 seconds, 20 to 40 words and 1
+tionalities or characteristics. We pick all the main images to          to 10 product numbers, respectively. This variation further
+construct the dataset.                                                  illustrates the real-world nature of our dataset. 2) Unpair
+Caption/text data are provided by the 1,000,517 mer-                    analysis: In the data collection process, there are 82,577
+chants. Note that the text description does not always match            invalid URLs for the image modalities (1.3% of the prod-
+well with the other modalities.                                         ucts), while the number of samples that contain both the
+Video data are used to showcase the products’ usage and                 Image and Text modalities is 6,230,490. Further taking into
+characteristics to customers. In our dataset, these videos are          account the table modality, the number of complete sam-
+recorded at a speed of 24 frames per second (FPS). To re-               ples drops by 1.4% to 6,225,598 samples that have all three
+duce the amount of redundant information that is contained              modalities. Overall, the dataset contains 5,050,078 samples
+in adjacent frames and the dataset as a whole, we only select           that contain all five modalities. This means that about 20%
+one frame per second.                                                   of the samples are incomplete. This is mostly due to mer-
+Audio data are extracted from the video data. We extract                chants being biased towards specific modalities, which is a
+the corresponding audio information of all sampled video                common scenario in the real world.
+
+
+                                                                   13
+Table 9. Comparisons with other widely used multi-modal datasets. ”-” means not mentioned. Our M5Product is one of the largest
+multi-modal datasets compared with existing datasets.
+
+                   Dataset                       Samples         Categories Instances Modalities                      Modal type               Product
+
+            LJ Speech [19]         13,100                            -          -              2               audio/text                         no
+             SQuAD [25]            37,111                            -          -              2               audio/text                         no
+             TVQA [24]             21,793                            -          -              2               video/text                         no
+            MovieQA [46]             408                             -          -              2               video/text                         no
+            TGIF-QA [20]           56,720                            -          -              2               video/text                         no
+               AVSD [2]            11,816                            -          -              2               video/text                         no
+            Youcook2 [57]          14,000                           89          -              2               video/text                         no
+             VATEX [47]            35,000                            -          -              2               video/text                         no
+            MSRVTT [51]           100,000                          20           -              2               video/text                         no
+          HowTo100M [32]         1,220,000                         12           -              2               video/text                         no
+      Conceptual Caption 3M [41] 3,300,000                           -          -              2               image/text                         no
+               SBU [34]           890,000                            -          -              2               image/text                         no
+         Visual Genome [23]       108,000                            -          -              2               image/text                         no
+             COCO [29]            123,287                            -          -              2               image/text                         no
+            Flickr30K [53]         31,000                            -          -              2               image/text                         no
+             NLVR2 [43]           107,292                            -          -              2               image/text                         no
+             VQA2.0 [4]           204,721                            -          -              2               image/text                         no
+          RPC checkout [48]        30,000                          200       367,935           2               image/text                         no
+           Twitter100k [17]       100,000                            -          -              2               image/text                         no
+        INRIA-Websearch [22]       71,478                          353          -              2               image/text                         no
+           NUS-WIDE [8]           269,648                          81           -              2               image/text                         no
+           Open Image [1]        1,670,000                           -          -              2               image/text                         no
+         Conceptual 12M [5]      12,423,374                          -          -              2               image/text                         no
+          CMU-MOSEI [54]           23,500                            2          -              3           text/video/audio                       no
+             XMedia [36]           12,000                           20          -              5       image/text/video/audio/3D                  no
+            Dress Retrieval [9]                  20,200             50 ∼20,200                 2               image/text                        yes
+              MEP-3M [6]                       3,012,959           599     -                   2               image/text                        yes
+             Product1M [55]                    1,182,083           458  92,200                 2               image/text                        yes
+               M5Product                       6,313,067          6,232    -                   5      image/text/video/audio/table               yes
+                                             Table 10. The retrieval performance with missing modalities.
+
+               Modal            Accuracy           mAP@1              mAP@5            mAP@10           Prec@1             Prec@5         Prec@10
+
+       SCALE (full-modality)         84.06       57.97/ 69.12       62.54/ 71.93      60.48 / 69.92   57.97 / 69.12      38.02 / 47.63   28.88 / 34.70
+            SCALE                    85.50       58.72 / 70.62      63.17 / 73.02     61.05 / 71.50   58.72 / 70.62      39.66 / 48.20   30.32 / 35.35
+
+
+G. Implementation Details                                                           H. Dataset Comparison
+   Our models are implemented in Pytorch [35]. To speed
+up training, we use Nvidia Apex8 for mixed precision train-
+ing. All models are trained on 4 Nvidia 3090 and 2080ti                                 A comprehensive comparison between our M5Product
+GPUs on our workstations. We use Adam [21] to optimize                              dataset and other widely used multi-modal pre-training
+the parameters of our model, with an initial learning rate of                       datasets is shown in Table 9. From the table, we can ob-
+1e-4, and use a linear learning rate decay schedule with a                          serve that our M5Product not only has more diverse modal-
+temperature parameter of 0.1.                                                       ities but also contains a large amount of data samples from
+8   https://github.com/NVIDIA/apex                                                  an abundant amount of categories.
+
+
+                                                                              14
+                          5                                                     6                                                          5
+                 10 #10                                                3 #10                                                       9 #10
+                 9                                                                                                                 8
+                                                                      2.5
+                 8                                                                                                                 7
+
+
+
+
+                                                                                                                  Product number
+                 7
+  Video number
+
+
+
+
+                                                                       2                                                           6
+
+
+
+
+                                                        Text number
+                 6
+                                                                                                                                   5
+                 5                                                    1.5
+                                                                                                                                   4
+                 4
+                                                                       1                                                           3
+                 3
+                 2                                                                                                                 2
+                                                                      0.5
+                 1                                                                                                                 1
+                 0                                                     0                                                           0
+                     5    15 25 35 45 55 65 75 85 95                        5       15 25 35 45 55 65 75 85 95                         5   15 25 35 45 55 65 75 85 95
+                              Video duration                                               Text length                                         Merchant number
+                                         Figure 9. The distributions of video, text and merchant on our M5Product.
+
+
+I. Missing data verification                                                                    space constraints, we have refrained from sharing the whole
+                                                                                                dataset.
+   Results in Table 10 show the superiority of our meth-
+ods over the standard approach of ignoring incomplete sam-
+ples. We compare two variants of our SCALE framework:
+1) SCALE (full-modality) and our proposed SCALE. The
+only difference between the two methods is the input. The
+input of the former only includes complete samples (all
+modalities present), while the input of the latter includes the
+incomplete modality samples. The verification is performed
+on the subset dataset as mentioned in the main article.
+
+J. Failure Analysis
+    Several product retrieval examples are shown in Fig-
+ures 10, 11, and 12. The first column represents the im-
+age and text modality of the query sample, while the eight
+images to its right belong to the matched results from the
+gallery set. In the matched results, the samples boxed in
+blue are the correctly matched samples, while the samples
+boxed in red are mismatched. These retrieval results illus-
+trate that the learned embeddings are discriminative. How-
+ever, in a few cases, the recalled samples are not matched
+due to the limited number of category samples in the gallery
+set or similar descriptions in the text data.
+
+K. More Visualization
+   Additional attention visualization results are provided in
+Figures 13 and 14. Similar to the illustrations in the main
+paper, these visualizations show that SCALE can learn the
+detailed semantics in the images and the text.
+
+L. Code and Our dataset.
+   The code is provided in the supplementary and we also
+include a few full-modality examples of the dataset. Due to
+
+
+                                                                                           15
+Car silk circle foot mats
+Changan Ease cs35 new
+cx20 Yuexiang V5 to Shang
+XT Ben Ben mini main
+driver single piece
+
+
+
+
+Zhang Xiaoquan kitchen knife
+home stainless steel slicing
+knife chef special kitchen
+knife cutting vegetables and
+meat free grinding kitchen
+knives
+                               Figure 10. Successful retrieval results 1 by our SCALE.
+
+
+
+
+                                                         16
+lulu yoga pants female outer
+wear net red nude sense fitness
+pants high waist lifting hip
+running nine points tight
+original sports pants
+
+
+
+
+Old daddy shoes with rainbow
+mesh shoes women 2020
+summer new thick bottom
+muffin breathable mesh surface
+inside high sports shoes
+
+                                  Figure 11. Failure retrieval results 2 by our SCALE.
+
+
+
+
+                                                          17
+TOMY Domeka alloy car
+model male toys TOMICA
+Ferrari 246GT / F40 / 512BB /
+365GT
+
+
+
+
+Yun Yun inter Anji white tea
+2020 new tea Ming Qian first
+pick authentic master spring tea
+premium rare bulk 100g
+
+                                   Figure 12. Failure retrieval results 3 by our SCALE.
+
+
+
+
+                                                           18
+   … plush      … iwatch leather          … wall coat              … pants      … solid wood
+   coat …       strap …                   hook …                   belt …       sofa …
+
+
+
+
+… flower knot   … steel rolling          … photo              … mahogany          … student
+tying bow …     pin …                    frame …              furniture bed …     shoes …
+
+
+
+
+                     Figure 13. More attention visualization 1 by our SCALE.
+
+
+
+
+                                               19
+… TV cabinet      … Bamboo             … light-emitting           … rice daiginjo   … urban
+combination …     toothpicks …         LED …                      sake …            rally suit …
+
+
+
+
+… biker leather    … acrylic              … pearl               … sterling          … Ornaments
+jacket …           lectern …             earrings …            silver bracelet …    decorations …
+
+
+
+
+                      Figure 14. More attention visualization 2 by our SCALE.
+
+
+
+
+                                                20
+
