@@ -55,6 +55,7 @@
 \usepackage{graphicx}
 \graphicspath{{images/}}
 \usepackage[labelfont={bf,color=primary},font=small,margin=1cm]{caption}
+\usepackage{tikz}
 
 % ---------------------------------------------------------------------
 % Tieu de section / box / list
@@ -196,6 +197,68 @@
 % TRANG BIA
 % =========================================================================
 \begin{titlepage}
+\thispagestyle{empty}
+
+\begin{tikzpicture}[remember picture, overlay]
+  \draw[primary, line width=3pt] ([xshift=1cm,yshift=-1cm]current page.north west)
+    rectangle ([xshift=-1cm,yshift=1cm]current page.south east);
+  \draw[primary, line width=3pt] ([xshift=1cm,yshift=-1cm]current page.north west) -- ++(1cm,0);
+  \draw[primary, line width=3pt] ([xshift=1cm,yshift=-1cm]current page.north west) -- ++(0,-1cm);
+  \draw[primary, line width=3pt] ([xshift=-1cm,yshift=1cm]current page.south east) -- ++(-1cm,0);
+  \draw[primary, line width=3pt] ([xshift=-1cm,yshift=1cm]current page.south east) -- ++(0,1cm);
+\end{tikzpicture}
+
+\begin{center}
+    \vspace*{-0.6cm}
+    \textbf{\large ĐẠI HỌC QUỐC GIA THÀNH PHỐ HỒ CHÍ MINH} \\ [0.3cm]
+    \textbf{\Large TRƯỜNG ĐẠI HỌC KHOA HỌC TỰ NHIÊN} \\ [0.3cm]
+    \textit{Khoa Công nghệ Thông tin} \\
+    \vspace{1.4cm}
+
+    \IfFileExists{logo.png}{
+      \includegraphics[height=4.2cm]{logo.png}
+    }{
+      \begin{tikzpicture}
+        \draw[primary, line width=1.5pt, rounded corners=8pt] (0,0) rectangle (7.4,3);
+        \node[primary, font=\Large\bfseries\sffamily, align=center] at (3.7,1.5) {Visual Product\\Image Search};
+      \end{tikzpicture}
+    } \\
+    \vspace{1cm}
+
+    {\LARGE \textbf{ĐỀ CƯƠNG ĐỒ ÁN / PROPOSAL}} \\[0.45cm]
+    {\Large \textbf{VISUAL PRODUCT IMAGE SEARCH IN E-COMMERCE}} \\[0.35cm]
+    {\large \textbf{TÌM KIẾM ẢNH SẢN PHẨM ĐA PHƯƠNG THỨC TRONG THƯƠNG MẠI ĐIỆN TỬ}} \\[0.6cm]
+    {\Large Môn học: Đồ án chuyên ngành} \\
+    \vspace{0.9cm}
+
+    \begin{flushleft}
+        \textbf{DỰ ÁN:} Visual Product Image Search in E-commerce \\[0.35cm]
+        \textbf{Công nghệ chính:} SCALE, Faiss, Approximate Nearest Neighbor Retrieval \\[0.35cm]
+        \textbf{Phiên bản:} 0.2 \quad \textbf{Ngày cập nhật:} 26/06/2026 \\[0.45cm]
+        \textbf{THÀNH VIÊN:}
+    \end{flushleft}
+
+    \scriptsize
+    \renewcommand{\arraystretch}{1.12}
+    \begin{tabularx}{\textwidth}{|c|L{3.2cm}|C{2.0cm}|L{2.5cm}|Y|}
+    \hline
+    \textbf{STT} & \textbf{Họ và tên} & \textbf{MSSV} & \textbf{Số điện thoại} & \textbf{Email} \\
+    \hline
+    1 & Trần Hải Đức & 23127173 & 0916821170 & thduc23@clc.fitus.edu.vn \\
+    \hline
+    2 & Trần Hoàng Nam & 23127232 & 0916821170 & thnam23@clc.fitus.edu.vn \\
+    \hline
+    \end{tabularx}
+    \renewcommand{\arraystretch}{1.25}
+    \normalsize
+
+    \vfill
+    \textit{TP.HCM, tháng 6 năm 2026.}
+\end{center}
+\end{titlepage}
+
+\iffalse
+\begin{titlepage}
 \centering
 \vspace*{0.3cm}
 
@@ -236,6 +299,7 @@ Trần Hoàng Nam & 23127232 & thnam23@clc.fitus.edu.vn \\
 {\sffamily\small Phiên bản 0.2 \quad$\vert$\quad Ngày 26 tháng 6 năm 2026}
 
 \end{titlepage}
+\fi
 
 % =========================================================================
 % MUC LUC
@@ -330,7 +394,7 @@ Hệ thống được định hướng theo hai tầng chính:
   \item \textbf{Retrieval layer}: dùng Faiss-based ANN retrieval để đánh chỉ mục embedding của catalog. Cấu hình chính là Faiss HNSW; FlatL2/FlatIP được dùng làm exact baseline; IVF-PQ được dùng khi cần giảm memory; ScaNN được xem là optional benchmark nếu môi trường hỗ trợ.
 \end{enumerate}
 
-\diagramimg{overview-portrait.png}{0.92}{Luồng tổng quan hệ thống: từ query đa phương thức, qua SCALE, đến Faiss index và top-K kết quả.}
+\diagramimg{Luồng tổng quát.png}{0.92}{Luồng tổng quan hệ thống: từ query đa phương thức, qua SCALE, đến Faiss index và top-K kết quả.}
 
 Điểm cốt lõi của đề tài là kết hợp chất lượng embedding đa phương thức với tốc độ truy hồi ở quy mô catalog lớn.
 

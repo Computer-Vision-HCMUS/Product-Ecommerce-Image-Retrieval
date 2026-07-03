@@ -1,0 +1,112 @@
+\xpg@aux {}{vietnamese}
+\contentsline {section}{\numberline {1}Giới thiệu}{3}{section.1}%
+\contentsline {subsection}{\numberline {1.1}Chủ đề}{3}{subsection.1.1}%
+\contentsline {subsection}{\numberline {1.2}Thành viên nhóm}{3}{subsection.1.2}%
+\contentsline {subsection}{\numberline {1.3}Lịch sử chỉnh sửa}{3}{subsection.1.3}%
+\contentsline {subsection}{\numberline {1.4}Phạm vi}{3}{subsection.1.4}%
+\contentsline {section}{\numberline {2}Giới thiệu tổng quan đề tài}{3}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Bối cảnh}{4}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Visual Product Image Search là gì?}{4}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}Tại sao topic này quan trọng?}{4}{subsection.2.3}%
+\contentsline {subsection}{\numberline {2.4}Overview hệ thống đề xuất}{4}{subsection.2.4}%
+\contentsline {section}{\numberline {3}Product E-commerce Image}{5}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Khái niệm}{5}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Các tính chất quan trọng}{5}{subsection.3.2}%
+\contentsline {subsubsection}{\numberline {3.2.1}Fine-grained visual similarity}{5}{subsubsection.3.2.1}%
+\contentsline {subsubsection}{\numberline {3.2.2}Semantic similarity}{5}{subsubsection.3.2.2}%
+\contentsline {subsubsection}{\numberline {3.2.3}Multi-view and product-level identity}{5}{subsubsection.3.2.3}%
+\contentsline {subsubsection}{\numberline {3.2.4}Noisy real-world query}{5}{subsubsection.3.2.4}%
+\contentsline {subsubsection}{\numberline {3.2.5}Incomplete and heterogeneous metadata}{6}{subsubsection.3.2.5}%
+\contentsline {subsection}{\numberline {3.3}Các gap cần xử lý}{6}{subsection.3.3}%
+\contentsline {subsection}{\numberline {3.4}Quy trình visual search điển hình}{6}{subsection.3.4}%
+\contentsline {subsection}{\numberline {3.5}Kết luận chuyển tiếp}{6}{subsection.3.5}%
+\contentsline {section}{\numberline {4}Dataset: M5Product}{6}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Chuyển tiếp từ Product E-commerce Image}{8}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Tổng quan M5Product}{8}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Vai trò của từng modality}{8}{subsection.4.3}%
+\contentsline {subsection}{\numberline {4.4}Dataset split và annotation}{8}{subsection.4.4}%
+\contentsline {subsection}{\numberline {4.5}Vì sao M5Product phù hợp với đề tài?}{9}{subsection.4.5}%
+\contentsline {subsection}{\numberline {4.6}Cách sử dụng trong đề tài}{9}{subsection.4.6}%
+\contentsline {section}{\numberline {5}Problem Statement}{9}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Mục tiêu}{9}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Định nghĩa hình thức}{9}{subsection.5.2}%
+\contentsline {subsection}{\numberline {5.3}Yêu cầu hệ thống}{10}{subsection.5.3}%
+\contentsline {subsection}{\numberline {5.4}Output mong muốn}{10}{subsection.5.4}%
+\contentsline {section}{\numberline {6}Related Works}{10}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Tổng quan}{10}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}Các công trình liên quan}{10}{subsection.6.2}%
+\contentsline {subsection}{\numberline {6.3}Bảng so sánh theo gap}{11}{subsection.6.3}%
+\contentsline {subsection}{\numberline {6.4}Vì sao lựa chọn này phù hợp với Product E-commerce Retrieval}{13}{subsection.6.4}%
+\contentsline {subsubsection}{\numberline {6.4.1}Vì sao dùng SCALE cho feature extraction?}{13}{subsubsection.6.4.1}%
+\contentsline {subsubsection}{\numberline {6.4.2}Vì sao cần FlatL2/FlatIP baseline?}{13}{subsubsection.6.4.2}%
+\contentsline {subsubsection}{\numberline {6.4.3}Vì sao dùng Faiss HNSW làm index chính?}{14}{subsubsection.6.4.3}%
+\contentsline {subsubsection}{\numberline {6.4.4}Vì sao cần IVF-PQ/OPQ-PQ?}{14}{subsubsection.6.4.4}%
+\contentsline {subsubsection}{\numberline {6.4.5}Vì sao ScaNN chỉ là optional benchmark?}{14}{subsubsection.6.4.5}%
+\contentsline {subsubsection}{\numberline {6.4.6}Tóm tắt vai trò từng thành phần}{14}{subsubsection.6.4.6}%
+\contentsline {subsection}{\numberline {6.5}Kết luận lựa chọn phương pháp}{15}{subsection.6.5}%
+\contentsline {section}{\numberline {7}Methodology}{15}{section.7}%
+\contentsline {subsection}{\numberline {7.1}Mục tiêu kỹ thuật}{15}{subsection.7.1}%
+\contentsline {subsection}{\numberline {7.2}Một khái niệm nền: token, feature và embedding}{15}{subsection.7.2}%
+\contentsline {subsection}{\numberline {7.3}Tổng quan kiến trúc SCALE}{16}{subsection.7.3}%
+\contentsline {subsection}{\numberline {7.4}Image branch: Image Regions $\to $ Image Transformer}{17}{subsection.7.4}%
+\contentsline {subsubsection}{\numberline {7.4.1}Image branch là gì?}{17}{subsubsection.7.4.1}%
+\contentsline {subsubsection}{\numberline {7.4.2}Vì sao dùng region feature thay vì toàn ảnh?}{17}{subsubsection.7.4.2}%
+\contentsline {subsubsection}{\numberline {7.4.3}Input và output}{17}{subsubsection.7.4.3}%
+\contentsline {subsubsection}{\numberline {7.4.4}Tool đề xuất}{18}{subsubsection.7.4.4}%
+\contentsline {subsubsection}{\numberline {7.4.5}Thiết kế thêm của nhóm}{18}{subsubsection.7.4.5}%
+\contentsline {subsection}{\numberline {7.5}Text branch: Text Tokens $\to $ Text Transformer}{18}{subsection.7.5}%
+\contentsline {subsubsection}{\numberline {7.5.1}Text branch là gì?}{18}{subsubsection.7.5.1}%
+\contentsline {subsubsection}{\numberline {7.5.2}BERT init nghĩa là gì?}{18}{subsubsection.7.5.2}%
+\contentsline {subsubsection}{\numberline {7.5.3}Input và output}{18}{subsubsection.7.5.3}%
+\contentsline {subsubsection}{\numberline {7.5.4}Tool đề xuất}{18}{subsubsection.7.5.4}%
+\contentsline {subsection}{\numberline {7.6}Table branch: Table Entities $\to $ Table Transformer}{19}{subsection.7.6}%
+\contentsline {subsubsection}{\numberline {7.6.1}Table entities là gì?}{19}{subsubsection.7.6.1}%
+\contentsline {subsubsection}{\numberline {7.6.2}Vì sao không chỉ nối table thành text?}{20}{subsubsection.7.6.2}%
+\contentsline {subsubsection}{\numberline {7.6.3}Cách biểu diễn table entity}{20}{subsubsection.7.6.3}%
+\contentsline {subsubsection}{\numberline {7.6.4}Input và output}{20}{subsubsection.7.6.4}%
+\contentsline {subsubsection}{\numberline {7.6.5}Tool đề xuất}{20}{subsubsection.7.6.5}%
+\contentsline {subsubsection}{\numberline {7.6.6}Mask Entity Modeling}{21}{subsubsection.7.6.6}%
+\contentsline {subsection}{\numberline {7.7}Video branch: Video Frames $\to $ Video Transformer}{21}{subsection.7.7}%
+\contentsline {subsubsection}{\numberline {7.7.1}Video branch là gì?}{21}{subsubsection.7.7.1}%
+\contentsline {subsubsection}{\numberline {7.7.2}Input và output}{21}{subsubsection.7.7.2}%
+\contentsline {subsubsection}{\numberline {7.7.3}Tool đề xuất}{21}{subsubsection.7.7.3}%
+\contentsline {subsubsection}{\numberline {7.7.4}Thiết kế thêm của nhóm}{21}{subsubsection.7.7.4}%
+\contentsline {subsection}{\numberline {7.8}Audio branch: Audio MFCC $\to $ Audio Transformer}{22}{subsection.7.8}%
+\contentsline {subsubsection}{\numberline {7.8.1}Audio branch là gì?}{22}{subsubsection.7.8.1}%
+\contentsline {subsubsection}{\numberline {7.8.2}Audio giúp gì cho product search?}{22}{subsubsection.7.8.2}%
+\contentsline {subsubsection}{\numberline {7.8.3}Input và output}{22}{subsubsection.7.8.3}%
+\contentsline {subsubsection}{\numberline {7.8.4}Tool đề xuất}{22}{subsubsection.7.8.4}%
+\contentsline {subsection}{\numberline {7.9}Concatenate Tokens: nối các modality như thế nào?}{23}{subsection.7.9}%
+\contentsline {subsection}{\numberline {7.10}Joint Co-Transformer (JCT)}{23}{subsection.7.10}%
+\contentsline {subsubsection}{\numberline {7.10.1}JCT là gì?}{23}{subsubsection.7.10.1}%
+\contentsline {subsubsection}{\numberline {7.10.2}Vì sao JCT quan trọng?}{23}{subsubsection.7.10.2}%
+\contentsline {subsubsection}{\numberline {7.10.3}Self-attention trong JCT hoạt động thế nào?}{23}{subsubsection.7.10.3}%
+\contentsline {subsubsection}{\numberline {7.10.4}Output của JCT lấy embedding như thế nào?}{24}{subsubsection.7.10.4}%
+\contentsline {subsection}{\numberline {7.11}Self-supervised masked tasks}{24}{subsection.7.11}%
+\contentsline {subsection}{\numberline {7.12}Self-harmonized Inter-Modality Contrastive Learning (SIMCL)}{24}{subsection.7.12}%
+\contentsline {subsection}{\numberline {7.13}Embedding extraction}{26}{subsection.7.13}%
+\contentsline {subsection}{\numberline {7.14}Retrieval index: Flat baseline, Faiss HNSW, IVF-PQ và ScaNN}{26}{subsection.7.14}%
+\contentsline {subsection}{\numberline {7.15}Index building pipeline}{29}{subsection.7.15}%
+\contentsline {subsection}{\numberline {7.16}Training workflow}{29}{subsection.7.16}%
+\contentsline {subsection}{\numberline {7.17}Testing and evaluation workflow}{29}{subsection.7.17}%
+\contentsline {subsection}{\numberline {7.18}Serving design}{29}{subsection.7.18}%
+\contentsline {subsection}{\numberline {7.19}Rủi ro và hướng xử lý}{31}{subsection.7.19}%
+\contentsline {subsection}{\numberline {7.20}Tóm tắt}{31}{subsection.7.20}%
+\contentsline {section}{\numberline {8}Expected Results and Evaluation}{32}{section.8}%
+\contentsline {subsection}{\numberline {8.1}Kết quả mong muốn}{32}{subsection.8.1}%
+\contentsline {subsection}{\numberline {8.2}Tiêu chí đánh giá chất lượng mô hình}{32}{subsection.8.2}%
+\contentsline {subsection}{\numberline {8.3}Tiêu chí đánh giá hệ thống retrieval}{32}{subsection.8.3}%
+\contentsline {subsection}{\numberline {8.4}Tiêu chí đánh giá sản phẩm so với sản phẩm khác}{32}{subsection.8.4}%
+\contentsline {subsection}{\numberline {8.5}Target kỳ vọng ban đầu}{32}{subsection.8.5}%
+\contentsline {subsection}{\numberline {8.6}Failure analysis dự kiến}{34}{subsection.8.6}%
+\contentsline {section}{\numberline {9}Execution Plan}{34}{section.9}%
+\contentsline {subsection}{\numberline {9.1}Thời gian thực hiện}{34}{subsection.9.1}%
+\contentsline {subsection}{\numberline {9.2}Milestones}{35}{subsection.9.2}%
+\contentsline {subsection}{\numberline {9.3}Phân công dự kiến}{35}{subsection.9.3}%
+\contentsline {subsection}{\numberline {9.4}Rủi ro kế hoạch}{35}{subsection.9.4}%
+\contentsline {section}{\numberline {10}Appendix and References}{35}{section.10}%
+\contentsline {subsection}{\numberline {10.1}References từ local papers}{35}{subsection.10.1}%
+\contentsline {subsection}{\numberline {10.2}References được trích trong methodology}{36}{subsection.10.2}%
+\contentsline {subsection}{\numberline {10.3}Tool/library references}{37}{subsection.10.3}%
+\contentsline {subsection}{\numberline {10.4}Paper references for tools and model components}{37}{subsection.10.4}%
+\contentsline {subsection}{\numberline {10.5}Appendix: ký hiệu}{38}{subsection.10.5}%
