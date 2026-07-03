@@ -1,0 +1,19 @@
+Kính gửi Thầy,
+
+Nhóm em xin gửi phần nộp bài cho đề tài:
+Tìm kiếm ảnh sản phẩm trực quan trong thương mại điện tử.
+
+Thư mục nộp bài bao gồm các tài liệu chính sau:
+
+1. Research Papers.xlsx
+   - Tổng hợp và phân tích 5 bài báo liên quan được nhóm sử dụng trong quá trình nghiên cứu.
+   - Nội dung bao gồm thông tin bài báo, hướng tiếp cận, đóng góp chính và mức độ liên quan đến đề tài.
+   - Lưu ý: Trong file Excel có một ô nội dung dài vượt mức hiển thị 680 pixel. Để xem đầy đủ nội dung của ô này, vui lòng nhấn nhấn 2 lần vào ô để xem chi tiết.
+
+2. Proposal.pdf
+   - Trình bày đề xuất thực hiện đề tài, bao gồm bối cảnh, bài toán, dữ liệu, phương pháp lựa chọn, kiến trúc hệ thống, kế hoạch thực hiện và tiêu chí đánh giá.
+
+Nhóm em xin cảm ơn Thầy đã xem xét phần nộp bài.
+
+Trân trọng,
+Nhóm thực hiện
