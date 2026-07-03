@@ -227,7 +227,7 @@
 
     {\LARGE \textbf{ĐỀ CƯƠNG ĐỒ ÁN / PROPOSAL}} \\[0.45cm]
     {\Large \textbf{VISUAL PRODUCT IMAGE SEARCH IN E-COMMERCE}} \\[0.35cm]
-    {\large \textbf{TÌM KIẾM ẢNH SẢN PHẨM ĐA PHƯƠNG THỨC TRONG THƯƠNG MẠI ĐIỆN TỬ}} \\[0.6cm]
+    {\large \textbf{TÌM KIẾM ẢNH SẢN PHẨM TRỰC QUAN TRONG THƯƠNG MẠI ĐIỆN TỬ}} \\[0.6cm]
     {\Large Môn học: Đồ án chuyên ngành} \\
     \vspace{0.9cm}
 
@@ -246,7 +246,7 @@
     \hline
     1 & Trần Hải Đức & 23127173 & 0916821170 & thduc23@clc.fitus.edu.vn \\
     \hline
-    2 & Trần Hoàng Nam & 23127232 & 0916821170 & thnam23@clc.fitus.edu.vn \\
+    2 & Trần Hoàng Nam & 23127232 & 0347417374 & thnam23@clc.fitus.edu.vn \\
     \hline
     \end{tabularx}
     \renewcommand{\arraystretch}{1.25}
@@ -314,7 +314,7 @@ Trần Hoàng Nam & 23127232 & thnam23@clc.fitus.edu.vn \\
 \section{Giới thiệu}
 
 \subsection{Chủ đề}
-\textbf{Visual Product Image Search in E-commerce} — Tìm kiếm ảnh sản phẩm bằng truy vấn đa phương thức (image, text, video, audio, table) trong môi trường thương mại điện tử.
+\textbf{Visual Product Image Search in E-commerce} — Tìm kiếm ảnh sản phẩm trực quan trong môi trường thương mại điện tử. Trọng tâm của đề tài là truy vấn bằng hình ảnh; các truy vấn đa phương thức như text, video, audio hoặc bảng thuộc tính được xem là hướng mở rộng.
 
 \subsection{Thành viên nhóm}
 \begin{table}[htbp]
@@ -326,7 +326,7 @@ Trần Hoàng Nam & 23127232 & thnam23@clc.fitus.edu.vn \\
 \midrule
 1 & Trần Hải Đức & 23127173 & thduc23@clc.fitus.edu.vn & 0916821170 \\
 \rowcolor{tblrow}
-2 & Trần Hoàng Nam & 23127232 & thnam23@clc.fitus.edu.vn & 0916821170 \\
+2 & Trần Hoàng Nam & 23127232 & thnam23@clc.fitus.edu.vn & 0347417374 \\
 \bottomrule
 \end{tabularx}
 \caption{Danh sách thành viên nhóm thực hiện}
@@ -349,7 +349,7 @@ Trần Hoàng Nam & 23127232 & thnam23@clc.fitus.edu.vn \\
 \end{table}
 
 \subsection{Phạm vi}
-Đề tài tập trung xây dựng một hệ thống tìm kiếm sản phẩm trong thương mại điện tử dựa trên truy vấn đa phương thức. Hệ thống nhận query dưới dạng hình ảnh, văn bản, video, audio hoặc bảng thông tin sản phẩm; sau đó dùng SCALE để tạo embedding, dùng FlatL2/FlatIP làm exact baseline, dùng Faiss HNSW làm index chính và trả về danh sách top-K ảnh sản phẩm tương đồng nhất trong catalog.
+Đề tài tập trung xây dựng một hệ thống tìm kiếm ảnh sản phẩm trực quan trong thương mại điện tử, trong đó query chính là hình ảnh sản phẩm. Hệ thống dùng SCALE để tạo embedding, dùng FlatL2/FlatIP làm exact baseline, dùng Faiss HNSW làm index chính và trả về danh sách top-K ảnh sản phẩm tương đồng nhất trong catalog. Các query bằng văn bản, video, audio hoặc bảng thông tin sản phẩm được đặt như hướng mở rộng sau khi pipeline truy hồi ảnh đã ổn định.
 
 Proposal này mô tả động lực, đặc trưng dữ liệu product e-commerce image, dataset M5Product, problem statement, related works, methodology dự kiến, tiêu chí đánh giá, kế hoạch thực hiện và danh mục tài liệu tham khảo.
 
@@ -394,7 +394,7 @@ Hệ thống được định hướng theo hai tầng chính:
   \item \textbf{Retrieval layer}: dùng Faiss-based ANN retrieval để đánh chỉ mục embedding của catalog. Cấu hình chính là Faiss HNSW; FlatL2/FlatIP được dùng làm exact baseline; IVF-PQ được dùng khi cần giảm memory; ScaNN được xem là optional benchmark nếu môi trường hỗ trợ.
 \end{enumerate}
 
-\diagramimg{Luồng tổng quát.png}{0.92}{Luồng tổng quan hệ thống: từ query đa phương thức, qua SCALE, đến Faiss index và top-K kết quả.}
+\diagramimg{Luồng tổng quát.png}{0.92}{Luồng tổng quan hệ thống: từ query ảnh sản phẩm, qua SCALE, đến Faiss index và top-K kết quả; các modality khác là hướng mở rộng.}
 
 Điểm cốt lõi của đề tài là kết hợp chất lượng embedding đa phương thức với tốc độ truy hồi ở quy mô catalog lớn.
 
@@ -519,7 +519,7 @@ Chúng tôi dự kiến dùng M5Product theo ba pha:
 \section{Problem Statement}
 
 \subsection{Mục tiêu}
-Mục tiêu là tìm ra một phương pháp để giải quyết search trên e-commerce: với một catalog gồm nhiều ảnh sản phẩm và một query đa phương thức, hệ thống phải trả về danh sách top-K ảnh sản phẩm giống query nhất.
+Mục tiêu là tìm ra một phương pháp để giải quyết visual search trên e-commerce: với một catalog gồm nhiều ảnh sản phẩm và một query ảnh, hệ thống phải trả về danh sách top-K ảnh sản phẩm giống query nhất. Query đa phương thức được xem là phần mở rộng của hướng tiếp cận này.
 
 \subsection{Định nghĩa hình thức}
 \begin{table}[htbp]
@@ -554,7 +554,7 @@ Bài toán:
 \subsection{Yêu cầu hệ thống}
 \begin{itemize}
   \item Trích xuất embedding đủ giàu để biểu diễn visual và semantic similarity.
-  \item Hỗ trợ query đa phương thức.
+  \item Thiết kế kiến trúc có thể mở rộng sang query đa phương thức.
   \item Truy hồi nhanh trên catalog lớn.
   \item Chống nhiễu query như crop, compression, rotation, watermark hoặc background phức tạp.
   \item Có metric đánh giá rõ ràng cho cả model quality và product/system quality.
@@ -813,10 +813,10 @@ Image transformer output & Sequence token ảnh đã được contextualize, ví
 \rowcolor{tblhead}
 \textcolor{white}{\textbf{Tool}} & \textcolor{white}{\textbf{Nguồn}} & \textcolor{white}{\textbf{Vai trò}} \\
 \midrule
-\texttt{airsplay/py-bottom-up-attention} & Được paper SCALE nhắc tới trong footnote. & Gần nhất với cách SCALE lấy bottom-up region features. \\
+\textsf{\small airsplay/\allowbreak py-bottom-up-\allowbreak attention} & Được paper SCALE nhắc tới trong footnote. & Gần nhất với cách SCALE lấy bottom-up region features. \\
 \rowcolor{tblrow}
-\texttt{torchvision.models.detection} & Tool ngoài, dựa trên PyTorch/TorchVision. & Dùng Faster R-CNN/ResNet-FPN để prototype object detection nếu không dùng đúng bottom-up attention code. \\
-\texttt{timm} hoặc \texttt{torchvision.models} & Tool ngoài. & Dùng ResNet/ViT/Swin làm visual backbone thay thế nếu cần đơn giản hóa. \\
+\textsf{\small torchvision.models.\allowbreak detection} & Tool ngoài, dựa trên PyTorch/TorchVision. & Dùng Faster R-CNN/ResNet-FPN để prototype object detection nếu không dùng đúng bottom-up attention code. \\
+\textsf{\small timm} hoặc \textsf{\small torchvision.models} & Tool ngoài. & Dùng ResNet/ViT/Swin làm visual backbone thay thế nếu cần đơn giản hóa. \\
 \bottomrule
 \end{tabularx}
 \caption{Công cụ đề xuất cho image branch}

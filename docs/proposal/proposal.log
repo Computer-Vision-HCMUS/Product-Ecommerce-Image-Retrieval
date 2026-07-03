@@ -1,4 +1,4 @@
-This is XeTeX, Version 3.141592653-2.6-0.999997 (MiKTeX 25.12) (preloaded format=xelatex 2026.5.16)  3 JUL 2026 19:55
+This is XeTeX, Version 3.141592653-2.6-0.999997 (MiKTeX 25.12) (preloaded format=xelatex 2026.5.16)  3 JUL 2026 21:42
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -1355,16 +1355,6 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `math shift' on input line 777.
 
 [16]
-Overfull \hbox (66.17404pt too wide) in paragraph at lines 821--821
-[]|\TU/Consolas(0)/m/n/12 airsplay/py-bottom-up-attention|  
- []
-
-
-Overfull \hbox (48.75613pt too wide) in paragraph at lines 821--821
-[]|\TU/Consolas(0)/m/n/12 torchvision.models.detection|  
- []
-
-
 Overfull \hbox (9.18074pt too wide) in paragraph at lines 821--821
 \TU/TimesNewRoman(0)/m/n/12 PyTorch/TorchVision.|  
  []
@@ -1633,7 +1623,7 @@ Package rerunfilecheck Info: File `proposal.out' has not changed.
 Here is how much of TeX's memory you used:
  32718 strings out of 402987
  694506 string characters out of 5448731
- 1230145 words of memory out of 5000000
+ 1231145 words of memory out of 5000000
  60905 multiletter control sequences out of 15000+600000
  637982 words of font info for 137 fonts, out of 8000000 for 9000
  1348 hyphenation exceptions out of 8191
