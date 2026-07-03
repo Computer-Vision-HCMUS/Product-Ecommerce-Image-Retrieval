@@ -404,18 +404,28 @@ SCALE trong paper M5Product là một kiến trúc multi-modal pretraining gồm
 
 ```mermaid
 flowchart TD
-    I["Image Regions<br/>Faster R-CNN + ResNet101"] --> IE["Image Transformer"]
-    T["Text Tokens<br/>BERT tokenizer/init"] --> TE["Text Transformer"]
-    TB["Table Entities<br/>key-value attributes"] --> TBE["Table Transformer"]
-    V["Video Frames<br/>sampled frame tokens"] --> VE["Video Transformer"]
-    A["Audio MFCC<br/>spectrogram-like tokens"] --> AE["Audio Transformer"]
-    IE --> CAT["Concatenate Tokens<br/>+ modality embeddings + masks"]
+    I["Image Regions<br/>Faster R-CNN + ResNet101"]:::imageStyle --> IE["Image Transformer"]:::transformerStyle
+    T["Text Tokens<br/>BERT tokenizer/init"]:::textStyle --> TE["Text Transformer"]:::transformerStyle
+    TB["Table Entities<br/>key-value attributes"]:::tableStyle --> TBE["Table Transformer"]:::transformerStyle
+    V["Video Frames<br/>sampled frame tokens"]:::videoStyle --> VE["Video Transformer"]:::transformerStyle
+    A["Audio MFCC<br/>spectrogram-like tokens"]:::audioStyle --> AE["Audio Transformer"]:::transformerStyle
+    IE --> CAT["Concatenate Tokens<br/>+ modality embeddings + masks"]:::concatStyle
     TE --> CAT
     TBE --> CAT
     VE --> CAT
     AE --> CAT
-    CAT --> JCT["Joint Co-Transformer"]
-    JCT --> Z["Unified Product Embedding"]
+    CAT --> JCT["Joint Co-Transformer"]:::jointStyle
+    JCT --> Z["Unified Product Embedding"]:::outputStyle
+    
+    classDef imageStyle stroke:#818cf8,fill:#eef2ff,stroke-width:2px
+    classDef textStyle stroke:#2dd4bf,fill:#f0fdfa,stroke-width:2px
+    classDef tableStyle stroke:#a78bfa,fill:#f5f3ff,stroke-width:2px
+    classDef videoStyle stroke:#fb923c,fill:#fff7ed,stroke-width:2px
+    classDef audioStyle stroke:#22d3ee,fill:#ecfeff,stroke-width:2px
+    classDef transformerStyle stroke:#f87171,fill:#fef2f2,stroke-width:2px
+    classDef concatStyle stroke:#facc15,fill:#fefce8,stroke-width:2px,stroke-dasharray:5
+    classDef jointStyle stroke:#4ade80,fill:#f0fdf4,stroke-width:2px
+    classDef outputStyle stroke:#a3e635,fill:#f7fee7,stroke-width:3px
 ```
 
 Theo paper M5Product/SCALE:
@@ -733,7 +743,7 @@ Attention score giữa token `i` và token `j` được tính từ `Q_i` và `K_
 Trong JCT, token image có thể attend tới token text/table/video/audio. Vì vậy, output của JCT không còn là feature đơn modality nữa mà là feature đã được "làm giàu" bởi các modality khác.
 
 ```mermaid
-flowchart TD
+flowchart LR
     X["Concatenated Multi-modal Tokens"] --> SA["Multi-head Self-Attention"]
     SA --> FFN["Feed Forward Network"]
     FFN --> LN["Residual + LayerNorm"]
@@ -791,6 +801,16 @@ flowchart TD
     ML --> W2
     W1 --> L["Total SCALE Loss"]
     W2 --> L
+    
+    classDef inputNode stroke:#818cf8,fill:#eef2ff,stroke-width:2px
+    classDef processNode stroke:#2dd4bf,fill:#f0fdfa,stroke-width:2px
+    classDef lossNode stroke:#fb923c,fill:#fff7ed,stroke-width:2px
+    classDef finalNode stroke:#e879f9,fill:#fdf4ff,stroke-width:3px
+    
+    class B inputNode
+    class P,N,CL,MASK,ML,S processNode
+    class W1,W2 lossNode
+    class L finalNode
 ```
 
 Tổng loss khái niệm:
@@ -859,7 +879,7 @@ Từ Shopsy, ScaNN và HNSW đạt Precision@4 tương đương FlatL2 nhưng QP
 ## 6.15. Index building pipeline
 
 ```mermaid
-flowchart TD
+flowchart LR
     C["Catalog Products"] --> E["SCALE Embedding Extraction"]
     E --> N["L2 Normalize"]
     N --> P["Optional PCA<br/>only if memory/latency requires it"]
