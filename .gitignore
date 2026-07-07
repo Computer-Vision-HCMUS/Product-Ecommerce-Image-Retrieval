@@ -2,3 +2,6 @@
 
 **/app/datasets/**
 !**/app/datasets/.gitkeep
+!**/app/datasets/download-dataset-tools.py
+
+**/__pycache__/**
