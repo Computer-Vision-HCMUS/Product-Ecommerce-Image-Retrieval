@@ -1,1 +1,4 @@
 *.zip
+
+**/app/datasets/**
+!**/app/datasets/.gitkeep
