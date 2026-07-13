@@ -404,28 +404,18 @@ SCALE trong paper M5Product là một kiến trúc multi-modal pretraining gồm
 
 ```mermaid
 flowchart TD
-    I["Image Regions<br/>Faster R-CNN + ResNet101"]:::imageStyle --> IE["Image Transformer"]:::transformerStyle
-    T["Text Tokens<br/>BERT tokenizer/init"]:::textStyle --> TE["Text Transformer"]:::transformerStyle
-    TB["Table Entities<br/>key-value attributes"]:::tableStyle --> TBE["Table Transformer"]:::transformerStyle
-    V["Video Frames<br/>sampled frame tokens"]:::videoStyle --> VE["Video Transformer"]:::transformerStyle
-    A["Audio MFCC<br/>spectrogram-like tokens"]:::audioStyle --> AE["Audio Transformer"]:::transformerStyle
-    IE --> CAT["Concatenate Tokens<br/>+ modality embeddings + masks"]:::concatStyle
+    I["Image Regions<br/>Faster R-CNN + ResNet101"] --> IE["Image Transformer"]
+    T["Text Tokens<br/>BERT tokenizer/init"] --> TE["Text Transformer"]
+    TB["Table Entities<br/>key-value attributes"] --> TBE["Table Transformer"]
+    V["Video Frames<br/>sampled frame tokens"] --> VE["Video Transformer"]
+    A["Audio MFCC<br/>spectrogram-like tokens"] --> AE["Audio Transformer"]
+    IE --> CAT["Concatenate Tokens<br/>+ modality embeddings + masks"]
     TE --> CAT
     TBE --> CAT
     VE --> CAT
     AE --> CAT
-    CAT --> JCT["Joint Co-Transformer"]:::jointStyle
-    JCT --> Z["Unified Product Embedding"]:::outputStyle
-    
-    classDef imageStyle stroke:#818cf8,fill:#eef2ff,stroke-width:2px
-    classDef textStyle stroke:#2dd4bf,fill:#f0fdfa,stroke-width:2px
-    classDef tableStyle stroke:#a78bfa,fill:#f5f3ff,stroke-width:2px
-    classDef videoStyle stroke:#fb923c,fill:#fff7ed,stroke-width:2px
-    classDef audioStyle stroke:#22d3ee,fill:#ecfeff,stroke-width:2px
-    classDef transformerStyle stroke:#f87171,fill:#fef2f2,stroke-width:2px
-    classDef concatStyle stroke:#facc15,fill:#fefce8,stroke-width:2px,stroke-dasharray:5
-    classDef jointStyle stroke:#4ade80,fill:#f0fdf4,stroke-width:2px
-    classDef outputStyle stroke:#a3e635,fill:#f7fee7,stroke-width:3px
+    CAT --> JCT["Joint Co-Transformer"]
+    JCT --> Z["Unified Product Embedding"]
 ```
 
 Theo paper M5Product/SCALE:
@@ -743,7 +733,7 @@ Attention score giữa token `i` và token `j` được tính từ `Q_i` và `K_
 Trong JCT, token image có thể attend tới token text/table/video/audio. Vì vậy, output của JCT không còn là feature đơn modality nữa mà là feature đã được "làm giàu" bởi các modality khác.
 
 ```mermaid
-flowchart LR
+flowchart TD
     X["Concatenated Multi-modal Tokens"] --> SA["Multi-head Self-Attention"]
     SA --> FFN["Feed Forward Network"]
     FFN --> LN["Residual + LayerNorm"]
@@ -801,16 +791,6 @@ flowchart TD
     ML --> W2
     W1 --> L["Total SCALE Loss"]
     W2 --> L
-    
-    classDef inputNode stroke:#818cf8,fill:#eef2ff,stroke-width:2px
-    classDef processNode stroke:#2dd4bf,fill:#f0fdfa,stroke-width:2px
-    classDef lossNode stroke:#fb923c,fill:#fff7ed,stroke-width:2px
-    classDef finalNode stroke:#e879f9,fill:#fdf4ff,stroke-width:3px
-    
-    class B inputNode
-    class P,N,CL,MASK,ML,S processNode
-    class W1,W2 lossNode
-    class L finalNode
 ```
 
 Tổng loss khái niệm:
@@ -851,35 +831,42 @@ L2-normalization giúp cosine similarity hoặc inner product ổn định hơn.
 
 ## 6.14. Retrieval index: Flat baseline, Faiss HNSW, IVF-PQ và ScaNN
 
-Exhaustive search phải so sánh query với mọi embedding trong catalog, không phù hợp với hàng triệu sản phẩm. Vì vậy retrieval layer dùng Approximate Nearest Neighbor, nhưng proposal cần chọn index cụ thể thay vì chỉ ghi chung chung là ANN.
+Khi xây dựng một hệ thống tìm kiếm ảnh sản phẩm ở quy mô thương mại điện tử, chúng ta phải đối mặt với thách thức lớn về mặt hiệu năng khi danh mục hàng hóa tăng dần lên đến hàng triệu phần tử. Nếu hệ thống vận hành theo cơ chế duyệt cạn (Exhaustive Search) tức là ép ảnh truy vấn phải đối chiếu trực tiếp với từng sản phẩm một trong cơ sở dữ liệu sẽ làm tăng tuyến tính độ trễ truy vấn theo kích thước dữ liệu, đồng thời làm giảm số lượng truy vấn xử lý được trong mỗi giây khiến người dùng phải chờ đợi lâu.
 
-Chiến lược thống nhất của đề tài:
+Để giải quyết vấn đề này, tầng truy hồi Retrieval Layer cần sử dụng các kỹ thuật tìm kiếm lân cận gần đúng ANN (Approximate Nearest Neighbor). Nhằm đảm bảo tính thực tế, thay vì chỉ gọi tên các giải pháp ANN một cách chung chung, hệ thống sẽ xây dựng một chiến lược cấu trúc tầng index cụ thể và phân chia rõ ràng giữa việc đo lường kiểm thử và khả năng mở rộng quy mô dữ liệu sau này.
 
-- **FlatL2/FlatIP**: exact baseline để biết chất lượng tối đa khi không approximate.
-- **Faiss HNSW**: index chính cho prototype/demo vì không cần training, recall-latency tốt và dễ benchmark.
-- **Faiss IVF-PQ hoặc OPQ-PQ**: phương án scale khi memory là bottleneck.
-- **ScaNN**: optional benchmark nếu môi trường cài đặt hỗ trợ; không phụ thuộc vào ScaNN để hoàn thành demo.
-- **Qdrant/Milvus**: chỉ dùng nếu cần product-level service có metadata filtering/API sẵn, không phải trọng tâm thuật toán trong proposal.
+Hệ thống truy hồi vận hành dựa trên sự phối hợp giữa các giải pháp cấu trúc dữ liệu, trong đó mỗi thành phần đảm nhận một vai trò cụ thể:
 
-| Index | Ưu điểm | Nhược điểm | Khi dùng |
-| --- | --- | --- | --- |
-| FlatL2 / FlatIP | Chính xác, baseline tốt. | QPS thấp khi catalog lớn. | Đánh giá oracle/baseline. |
-| Faiss HNSW | Recall-latency tốt, không cần training, dễ prototype. | Tốn RAM, cần tune `M`, `efSearch`, `efConstruction`; không tối ưu khi cần xóa vector thường xuyên. | Index chính cho demo và benchmark ban đầu. |
-| Faiss IVF-PQ / OPQ-PQ | Giảm memory, có thể scale lớn hơn HNSW. | Cần training index, có thể giảm precision, cần tune `nlist`, `nprobe`, PQ code size. | Khi memory là bottleneck hoặc catalog tăng lớn. |
-| ScaNN | Tối ưu vector similarity search bằng pruning/quantization, QPS CPU cao trong một số setting. | Phụ thuộc platform và tuning, không cần là dependency bắt buộc. | Optional benchmark dựa trên kinh nghiệm Shopsy. |
-| Annoy | Đơn giản, dễ dùng. | Build/search có thể kém hơn ScaNN/HNSW trong setting lớn. | Prototype nhanh. |
+**FlatL2 / FlatIP (Exact Baseline):** Hệ thống thực hiện chuẩn hóa vector (L2 Normalization) rồi tính toán khoảng cách Euclidean hoặc tích vô hướng để tìm ra Ground Truth. Bước này giúp đánh giá chính xác năng lực trích xuất đặc trưng của mô hình SCALE mà không bị nhiễu bởi các sai số, từ đó đo lường được các thuật toán gần đúng phía sau đã đánh đổi bao nhiêu % độ chính xác (Recall/Precision loss) để lấy tốc độ.
 
-Từ Shopsy, ScaNN và HNSW đạt Precision@4 tương đương FlatL2 nhưng QPS cao hơn nhiều trên index 3 triệu ảnh. Vì vậy đề tài sẽ ưu tiên:
+**Faiss HNSW (Index mặc định cho Prototype/Demo):** Thuật toán này tổ chức không gian vector thành một cấu trúc đồ thị đa tầng để tối ưu quỹ đạo tìm kiếm. Hệ thống ưu tiên lựa chọn HNSW làm index mặc định trong giai đoạn đầu vì thuật toán đáp ứng các chỉ số về độ phủ và độ trễ, đồng thời không yêu cầu bước huấn luyện index, giúp luồng cập nhật dữ liệu trở nên đơn giản hơn. Các tầng đồ thị phía trên giữ mật độ liên kết thưa thớt để định hướng nhanh vùng không gian, trong khi tầng đáy chứa toàn bộ dữ liệu để thu hẹp phạm vi tìm kiếm cục bộ. Nhờ đặc tính không cần training, hệ thống có thể chèn trực tiếp vector mới vào đồ thị theo thời gian thực mà không cần xây dựng lại toàn bộ cấu trúc index từ đầu.
 
-1. FlatL2/FlatIP làm exact baseline.
-2. Faiss HNSW làm default retrieval index.
-3. Faiss IVF-PQ/OPQ-PQ nếu cần giảm memory.
-4. ScaNN nếu môi trường hỗ trợ tốt và còn thời gian benchmark.
+**Faiss IVF-PQ / OPQ-PQ (Phương án mở rộng quy mô):** Khi dung lượng dữ liệu lớn và bộ nhớ RAM trở thành bottleneck, hệ thống sẽ kích hoạt giải pháp này. Bằng cách kết hợp danh mục đảo IVF để phân cụm không gian và lượng tử hóa sản phẩm (OPQ/PQ), thuật toán tiến hành chia nhỏ vector và nén thành các mã định danh ngắn, giúp tối ưu dung lượng lưu trữ bộ nhớ. Khi truy vấn, hệ thống tính toán khoảng cách trực tiếp trên các mã định danh đã nén thông qua bảng tra cứu mà không cần giải nén.
+
+**ScaNN (Optional Benchmark):** Giải pháp này từ Google thực hiện tìm kiếm tương đồng thông qua cơ chế lượng tử hóa vector bất đẳng hướng (Anisotropic Vector Quantization). Hệ thống thiết lập ScaNN như một module độc lập không bắt buộc nhằm mục đích thử nghiệm và kiểm chứng khả năng tối ưu QPS trên hạ tầng CPU, dựa trên kết quả thực nghiệm từ kiến trúc hệ thống Shopsy của Flipkart.
+
+**Các giải pháp bổ trợ (Annoy, Qdrant/Milvus):** Hệ thống có thể ứng dụng Annoy để thử nghiệm nhanh ở quy mô nhỏ dựa trên cấu trúc cây phân tách không gian. Đối với Qdrant hoặc Milvus, các công cụ này sẽ được cân nhắc nếu hệ thống cần tích hợp các dịch vụ hoàn chỉnh có sẵn API và bộ lọc metadata ở cấp độ production, dù không nằm trong trọng tâm tối ưu hóa thuật toán.
+
+
+|Index|Ưu điểm|Nhược điểm|Khi dùng|
+|-|-|-|-|
+|FlatL2 / FlatIP|Phản ánh đúng khoảng cách toán học thực tế trong không gian không nén, làm mốc chuẩn Exact Baseline để kiểm thử sai số.|Tốc độ xử lý (QPS) giảm tuyến tính khi kích thước danh mục tăng lớn, tiêu tốn nhiều tài nguyên tính toán.|Đánh giá năng lực biểu diễn của không gian embedding do mô hình SCALE tạo ra và đo lường tỷ lệ hao hụt độ chính xác của các thuật toán ANN.|
+|Faiss HNSW|Đạt chỉ số độ phủ cao trên các tập dữ liệu thử nghiệm, không yêu cầu bước huấn luyện index, hỗ trợ triển khai nhanh.|Tốn RAM, cần tune `M`, `efSearch`, `efConstruction`; không tối ưu khi cần xóa vector thường xuyên.|Cấu hình làm index chính cho hệ thống chạy thử nghiệm Prototype/Demo và các bài kiểm tra hiệu năng ban đầu.|
+|Faiss IVF-PQ / OPQ-PQ|Giảm dung lượng bộ nhớ RAM bằng cơ chế nén vector, hỗ trợ mở rộng quy mô khi số lượng phần tử tăng lên.|Bắt buộc phải thực hiện bước huấn luyện trên tập dữ liệu mẫu, có thể giảm một phần precision, cần tune `nlist`, `nprobe`, PQ code size.|Sử dụng khi bộ nhớ vật lý chạm ngưỡng giới hạn bottleneck hoặc khi kích thước danh mục sản phẩm tăng lớn lên quy mô hàng triệu phần tử.|
+|ScaNN|Tối ưu vector similarity search bằng pruning/quantization, đạt chỉ số QPS cao trên hạ tầng CPU.|Quy trình thiết lập môi trường phức tạp, phụ thuộc chặt chẽ vào hệ điều hành và phiên bản thư viện hỗ trợ. Không bắt buộc phải là một dependency cốt lõi của hệ thống.|Sử dụng làm Optional benchmark để thu thập và đối chiếu số liệu hiệu năng với cấu trúc đồ thị của Faiss HNSW.|
+|Annoy|Cấu trúc dữ liệu dựa trên cây chia không gian đơn giản, dễ cài đặt, thời gian nạp index vào bộ nhớ nhanh.|Thời gian xây dựng index (Build time) dài; tốc độ tìm kiếm và độ chính xác bị giới hạn so với HNSW hoặc ScaNN khi kích thước dữ liệu tăng lên.|Phục vụ quá trình hiện thực hóa luồng xử lý cơ bản hoặc xây dựng prototype nhanh ở giai đoạn đầu.|
+
+Dựa trên kết quả thực nghiệm từ kiến trúc hệ thống Shopsy của Flipkart với quy mô 3 triệu ảnh sản phẩm, các giải pháp lượng tử hóa và đồ thị như ScaNN và HNSW đạt chỉ số Precision@4 tương đương với FlatL2 nhưng mang lại tốc độ QPS cao hơn nhiều lần. Thống nhất lộ trình triển khai thực nghiệm tầng truy hồi theo thứ tự ưu tiên như sau:
+
+- **FlatL2 / FlatIP**: Làm exact baseline để xác định trần chất lượng tối đa của không gian embedding do mô hình SCALE tạo ra.
+- **Faiss HNSW**: Làm retrieval index mặc định cho hệ thống tìm kiếm thời gian thực để chứng minh hiệu năng về latency và recall trên môi trường demo.
+- **Faiss IVF-PQ / OPQ-PQ**: Tiến hành huấn luyện và cấu hình song song để làm phương án dự phòng tối ưu tài nguyên bộ nhớ khi catalog tăng trưởng.
+- **ScaNN**: Triển khai làm module đối soát độc lập để thu thập và so sánh số liệu hiệu năng với Faiss HNSW trên cùng một cấu hình CPU nếu môi trường hỗ trợ tốt.
 
 ## 6.15. Index building pipeline
 
 ```mermaid
-flowchart LR
+flowchart TD
     C["Catalog Products"] --> E["SCALE Embedding Extraction"]
     E --> N["L2 Normalize"]
     N --> P["Optional PCA<br/>only if memory/latency requires it"]
