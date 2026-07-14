@@ -1,0 +1,15 @@
+# Python 3.12. Install a CUDA-enabled PyTorch wheel separately first:
+# https://pytorch.org/get-started/locally/
+torch>=2.4
+torchvision>=0.19
+numpy>=1.26,<3
+pillow>=10
+faiss-cpu>=1.8
+transformers>=4.45,<5
+accelerate>=1.0
+safetensors>=0.4
+sentencepiece>=0.2
+opencv-python>=4.10
+av>=12
+tqdm>=4.66
+pyyaml>=6.0

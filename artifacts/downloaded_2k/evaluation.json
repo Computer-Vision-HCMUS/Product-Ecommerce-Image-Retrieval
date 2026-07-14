@@ -1,0 +1,21 @@
+{
+  "positive_definition": "same label; custom downloaded_2k split, not official M5Product ground truth",
+  "k": 10,
+  "flat": {
+    "precision@10": 0.7581611570247935,
+    "recall@10": 0.07382721473445841,
+    "map@10": 0.7204252754820937,
+    "ndcg@10": 0.7809409516855005
+  },
+  "ann": {
+    "precision@10": 0.7563533057851239,
+    "recall@10": 0.07305377482411632,
+    "map@10": 0.7197869318181818,
+    "ndcg@10": 0.7781606265380533
+  },
+  "ann_recall_vs_flat": 0.9759814049586777,
+  "flat_latency_ms_per_query": 0.6559291838843462,
+  "ann_latency_ms_per_query": 0.07807654958680758,
+  "ann_qps": 12807.943041696195,
+  "index_bytes": 12875622
+}
