@@ -551,19 +551,18 @@ sequenceDiagram
 
 ## 7.20. Phương pháp giải quyết các thách thức thực hiện
 
-Methodology được thiết kế để xử lý trực tiếp các gap ở Mục 02 và các thách thức thực hiện ở Mục 05, thay vì chỉ tối ưu similarity giữa hai ảnh. Mỗi thành phần giải quyết một phần rủi ro; vì vậy, hiệu quả cuối cùng cần được đánh giá đồng thời theo representation quality, retrieval quality và system quality.
+Methodology không tuyên bố loại bỏ hoàn toàn mọi gap ở Mục 02/Mục 05. SCALE và M5Product chủ yếu cải thiện representation; Faiss giải quyết ràng buộc latency ở catalog lớn; hai re-ranking ở Mục 08 chỉ điều chỉnh thứ tự kết quả. Vì vậy, mỗi gap cần được gắn với cơ chế phù hợp và metric riêng.
 
 | Thách thức | Thành phần xử lý chính | Cơ chế và giới hạn |
 | --- | --- | --- |
-| Domain gap giữa query và catalog | Image preprocessing, region features và multi-view video | Region feature và nhiều view giảm ảnh hưởng của background. Hiệu quả vẫn phụ thuộc chất lượng ảnh query và độ đa dạng của catalog. |
-| Fine-grained attributes và crop query | Image regions, title/table encoder, JCT và rerank top-N | JCT liên kết chi tiết ảnh với brand, material, color hoặc size trong metadata. Với query quá nhỏ hoặc bị che khuất, hệ thống vẫn có thể cần object grounding chuyên biệt. |
-| Missing modality và metadata noise | Modality-specific encoder, attention mask, zero imputation và SIMCL | Query/candidate có modality thiếu vẫn có thể được encode; SIMCL điều chỉnh đóng góp giữa modality. Zero imputation không tự tạo thông tin còn thiếu, nên metadata nhiễu vẫn là rủi ro. |
-| Model gap của region extractor | Region recall benchmark và failure logging theo category | Detector có thể bỏ sót object ngoài distribution; cần đo riêng các failure case này trước khi kết luận về retrieval. |
-| Metadata noise | MEM, cross-modal contrastive learning và validation metadata | Key-value structure giúp phân biệt vai trò của thuộc tính; cross-modal loss giảm phụ thuộc vào một nguồn. Cần tiền xử lý và kiểm tra metadata trước khi index. |
-| Quy mô, latency và catalog update | Embedding offline, Flat baseline, Faiss HNSW/IVF-PQ và metadata mapping | Flat tách lỗi representation khỏi lỗi ANN; HNSW phục vụ prototype latency thấp; IVF-PQ giảm memory khi catalog lớn. Update catalog cần quy trình add/rebuild và benchmark định kỳ. |
+| Sensory Gap | Image regions và multi-view video trong SCALE | Giảm một phần ảnh hưởng của background/góc nhìn; vẫn phải đo riêng trên noise slice vì proposal không có cải tiến query-noise riêng. |
+| Semantic Gap | Text/table encoder, JCT và attribute-aware re-ranking ở Mục 08 | Kết hợp chi tiết ảnh với model, material, color hoặc size; re-ranking chỉ hiệu quả khi query có context đáng tin cậy. |
+| Context-Query Gap | Query text/table tùy chọn, modality encoder, JCT, zero imputation và validation metadata | Khi có context, hệ thống tận dụng metadata để làm rõ intent; khi chỉ có ảnh, hệ thống không suy diễn ràng buộc từ Top-1. |
+| Model Gap | M5Product đa category và evaluation theo category | M5Product mở rộng coverage so với dataset đơn miền, nhưng long-tail/out-of-distribution vẫn là giới hạn cần báo cáo. |
+| Ràng buộc hệ thống | Embedding offline, `IndexFlatIP`, Faiss HNSW/IVF-PQ, exact re-ranking ở Mục 08 và metadata mapping | Flat tách lỗi representation khỏi ANN; HNSW giảm latency; IVF-PQ giảm memory; exact re-ranking sửa thứ tự trong Top-N, không thay thế index. |
 
 Nhờ cách phân tách này, kết quả thực nghiệm có thể trả lời rõ ba câu hỏi: embedding có phân biệt đúng sản phẩm không, ANN đã đánh đổi bao nhiêu chất lượng để đổi lấy tốc độ, và nhóm query nào vẫn là failure case cần cải thiện.
 
 ## 7.21. Summary
 
-SCALE + Faiss-based retrieval phù hợp với đề tài vì SCALE học representation chung cho 5 modality và tự cân bằng đóng góp giữa các modality, còn Flat/HNSW/IVF-PQ biến embedding đó thành hệ thống truy hồi có thể đo đạc và mở rộng. Điểm cần nhấn mạnh là mỗi block trong kiến trúc đều có vai trò cụ thể: image branch học vùng sản phẩm, text branch học mô tả, table branch học thuộc tính có cấu trúc, video branch học góc nhìn theo thời gian, audio branch học tín hiệu âm thanh/voice, JCT học quan hệ giữa tất cả token, SIMCL học cách cân bằng modality, và Faiss HNSW/IVF-PQ phục vụ truy hồi top-K ở quy mô lớn.
+SCALE + Faiss-based retrieval phù hợp với đề tài vì SCALE học representation chung cho 5 modality, còn Faiss biến embedding đó thành hệ thống truy hồi có thể đo đạc và mở rộng. Pipeline cải thiện representation và khả năng phục vụ, nhưng không tự giải quyết hoàn toàn ảnh query nhiễu, category ngoài training hay metadata sai. Vì vậy, kết quả cần được báo cáo theo Sensory, Semantic, Context-Query, Model Gap và ràng buộc hệ thống thay vì chỉ nêu một metric trung bình.

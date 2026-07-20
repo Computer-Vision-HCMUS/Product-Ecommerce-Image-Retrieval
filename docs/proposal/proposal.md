@@ -110,14 +110,14 @@ E-commerce catalog thường có thuộc tính không đầy đủ. Sản phẩm
 
 ## 2.3. Các gap cần xử lý
 
-| Gap | Mô tả | Tác động tới search |
-| --- | --- | --- |
-| Sensory Gap | Khác biệt giữa ảnh catalog đẹp và ảnh query ngoài đời: ánh sáng, góc chụp, crop, compression. | Làm embedding lệch dù là cùng sản phẩm. |
-| Semantic Gap | Đặc trưng pixel giống nhau nhưng category/intent khác nhau. | Trả về sản phẩm nhìn giống nhưng không đúng nhu cầu mua. |
-| Context-Query Gap | Query của người dùng thiếu ngữ cảnh hoặc có ngữ cảnh khác catalog. | Khó hiểu người dùng muốn cùng sản phẩm, cùng style hay cùng chức năng. |
-| Model Gap | Khả năng nhận biết/đề xuất vùng của model không bao quát mọi loại sản phẩm, thuộc tính và bối cảnh trong ảnh thực tế. | Có thể bỏ sót object hoặc lấy sai region trước khi bước embedding và retrieval diễn ra. |
+| Gap | Mô tả | Ví dụ | Tác động tới search |
+| --- | --- | --- | --- |
+| Sensory Gap | Ảnh catalog và ảnh query khác nhau về ánh sáng, góc chụp, crop hoặc compression. | Cùng một đôi giày, nhưng query chụp thiếu sáng và bị watermark. | Embedding lệch dù là cùng sản phẩm. |
+| Semantic Gap | Ảnh giống về pixel/texture nhưng khác ý nghĩa thương mại hoặc thuộc tính quyết định mua. | Hai ốp điện thoại giống màu nhưng dành cho iPhone 14 và iPhone 15. | Trả về sản phẩm nhìn giống nhưng không đúng nhu cầu mua. |
+| Context-Query Gap | Query thiếu ngữ cảnh so với catalog có title, brand, category và specification. | Chỉ có ảnh một chiếc túi, không biết người dùng cần đúng mẫu hay túi cùng kiểu. | Khó xác định tiêu chí relevance và tận dụng metadata đúng cách. |
+| Model Gap | Kiến thức mô hình chỉ bao quát các category và kiểu sản phẩm đã thấy đủ trong dữ liệu huấn luyện. | Model học tốt giày dép/quần áo nhưng nhầm cặp, ba lô hoặc trang sức. | Embedding không biểu diễn đúng sản phẩm thuộc category ít gặp hoặc ngoài phân bố dữ liệu. |
 
-**Model Gap** khác với việc catalog có nhiều modality. Đây là khoảng cách giữa phạm vi object/region mà mô hình đã học và phạm vi sản phẩm xuất hiện khi người dùng truy vấn. Ví dụ, detector kiểu YOLO phụ thuộc vào các class và phân bố dữ liệu huấn luyện; do đó không nên giả định nó sẽ phát hiện đúng mọi sản phẩm mới hoặc long-tail. Với đề tài này, gap được theo dõi bằng region recall và failure analysis, không được xem là một cải tiến bổ sung của pipeline.
+**Model Gap** khác với việc catalog có nhiều modality hoặc detector chọn sai vùng. Đây là khoảng cách giữa kiến thức model học từ dữ liệu huấn luyện và độ đa dạng của sản phẩm thực tế. Dataset M5Product giúp giảm gap này vì có hơn 6.000 category, 5 modality và dữ liệu e-commerce đa dạng hơn dataset thời trang hẹp miền. Tuy nhiên, nó không loại bỏ hoàn toàn gap: category hiếm, sản phẩm mới hoặc category không có trong training vẫn cần được đánh giá riêng theo từng nhóm category.
 
 ## 2.4. Quy trình visual search điển hình
 
@@ -181,6 +181,7 @@ Bài báo M5Product mô tả training set gồm **4,423,160 samples** từ **3,5
 - Có dữ liệu lớn để học embedding robust.
 - Có missing modality, giúp kiểm tra khả năng vận hành khi catalog không đầy đủ.
 - Có category đa dạng hơn các dataset thời trang hẹp miền.
+- Có 6.232 category nên giúp mở rộng kiến thức của model ngoài các nhóm quen thuộc như giày dép hoặc quần áo; tuy vậy vẫn cần đánh giá riêng category long-tail và category ngoài training.
 - Có task retrieval, classification và clustering để đánh giá embedding.
 
 ## 3.6. Cách sử dụng trong đề tài
@@ -251,33 +252,39 @@ Với mỗi query, hệ thống trả về:
 
 # 05. Các thách thức thực hiện
 
-## 5.1. Bản chất của bài toán
+## 5.1. Cách dùng thuật ngữ trong proposal
 
-Truy vấn ảnh trong thương mại điện tử không chỉ là bài toán tìm hai ảnh có nội dung gần nhau. Một ảnh query có thể biểu đạt nhu cầu tìm đúng một SKU (*Stock Keeping Unit* — mã định danh của một đơn vị hàng hóa/biến thể cụ thể), một biến thể của sản phẩm hoặc một sản phẩm thay thế có cùng thuộc tính. Trong khi đó, catalog chứa ảnh, title, thuộc tính cấu trúc và nhiều hình thức trình bày khác nhau. Vì vậy, hệ thống phải đối mặt đồng thời với sai khác dữ liệu, sự mơ hồ về mục tiêu truy vấn và áp lực phục vụ ở quy mô lớn [36]--[38].
+Mục 02 định nghĩa bốn gap: Sensory, Semantic, Context-Query và Model Gap. Mục này không tạo thêm một bộ gap khác; mỗi mục bên dưới chỉ mô tả cách một gap xuất hiện khi triển khai hệ thống. Ngoài bốn gap, Mục 5.6 là ràng buộc hệ thống về quy mô và cập nhật catalog.
 
-## 5.2. Khoảng cách giữa ảnh query và ảnh catalog
+## 5.2. Sensory Gap: ảnh query khác ảnh catalog
 
-Ảnh query thường do người dùng chụp hoặc trích từ nội dung trên mạng xã hội. Các ảnh này có thể bị nén, mờ, thiếu sáng, chụp nghiêng, che khuất hoặc có nhiều vật thể trong cùng khung hình. Ngược lại, ảnh catalog thường được chuẩn hóa, có nền sạch, góc chụp ổn định và sản phẩm chiếm phần lớn diện tích ảnh. Sự khác biệt này tạo ra *domain gap*: đặc trưng học từ ảnh catalog không nhất thiết còn ổn định trên ảnh query thực tế.
+Ảnh query thường do người dùng chụp hoặc trích từ mạng xã hội, nên có thể bị nén, mờ, thiếu sáng, chụp nghiêng, che khuất hoặc có nhiều vật thể. Ngược lại, ảnh catalog thường có nền sạch và sản phẩm chiếm phần lớn khung hình. Đây là Sensory Gap, còn được gọi là *domain gap* trong bối cảnh query và catalog thuộc hai phân bố ảnh khác nhau.
 
-Chất lượng ảnh tham chiếu cũng không đồng đều. Ảnh có sản phẩm quá nhỏ, có người mẫu hoặc vật thể phụ, thiếu các góc nhìn quan trọng hay có nền gây nhiễu đều làm giảm khả năng nhận diện. Tài liệu triển khai product search cho thấy hiệu quả phụ thuộc đáng kể vào việc sản phẩm được thể hiện rõ, ít vật thể gây nhiễu và có nhiều góc nhìn bổ sung [37].
+Ví dụ, cùng một đôi giày có thể được catalog chụp trên nền trắng, còn query là ảnh chụp ngoài đường bị tối và chỉ thấy một phần thân giày. Nếu embedding học quá phụ thuộc vào nền hoặc ánh sáng catalog, kết quả retrieval sẽ lệch. Chất lượng ảnh tham chiếu vì vậy cần thể hiện rõ sản phẩm, ít vật thể gây nhiễu và có nhiều góc nhìn bổ sung [37].
 
-## 5.3. Tính phân biệt thuộc tính chi tiết
+## 5.3. Semantic Gap: giống ảnh nhưng sai sản phẩm
 
-Trong e-commerce, nhiều candidate có hình dáng tổng thể rất giống nhau nhưng khác ở các chi tiết có giá trị quyết định đối với người mua: logo, khóa kéo, texture, màu sắc, dung tích, kích thước, mã phiên bản hoặc vật liệu. Các khác biệt này thường nhỏ hơn nhiều so với thay đổi về background, ánh sáng hoặc bố cục.
+Trong e-commerce, nhiều candidate có hình dáng tổng thể rất giống nhau nhưng khác ở logo, màu sắc, dung tích, kích thước, model, mã phiên bản hoặc vật liệu. Các chi tiết này có thể nhỏ hơn background hay bố cục, nhưng lại quyết định sản phẩm có phù hợp với người mua hay không.
 
-Thách thức này đặc biệt rõ khi query chỉ là ảnh crop một bộ phận của sản phẩm, còn candidate là ảnh đầy đủ có background hoặc có nhiều item. TIGER-FG mô tả hiện tượng này là *granularity disparity*: biểu diễn toàn cục có thể bị chi phối bởi vùng nổi bật nhưng không liên quan đến đối tượng cần tìm [38]. Do đó, một kết quả có visual similarity cao vẫn có thể sai về biến thể hoặc thuộc tính sản phẩm.
+Ví dụ, hai ốp lưng điện thoại có thể có cùng màu và họa tiết nhưng một chiếc dành cho iPhone 14, chiếc còn lại dành cho iPhone 15. Visual similarity cao không đủ để kết luận hai sản phẩm thay thế được nhau. Thách thức rõ hơn khi query chỉ là ảnh crop một bộ phận, còn candidate là ảnh đầy đủ có background hoặc nhiều item; TIGER-FG gọi sự lệch mức chi tiết này là *granularity disparity* [38].
 
-## 5.4. Không đối xứng modality và nhiễu metadata
+## 5.4. Context-Query Gap: query thiếu ngữ cảnh và metadata có nhiễu
 
-Query và candidate thường không có cùng loại thông tin. Người dùng có thể chỉ gửi một ảnh, trong khi candidate được mô tả bằng ảnh, title, category, brand và bảng thuộc tính. Ngược lại, query có thể có text nhưng candidate lại thiếu metadata. Sự không đối xứng này được gọi là *modality disparity* trong image-to-multimodal retrieval [38].
+Query thường chỉ là ảnh, trong khi candidate có thể có thêm title, category, brand và bảng thuộc tính. Sự không cân xứng thông tin này được TIGER-FG gọi là *modality disparity* [38]; trong proposal này, nó được xem là biểu hiện của Context-Query Gap: hệ thống phải quyết định khi nào metadata giúp làm rõ nhu cầu và khi nào nó gây nhiễu.
 
-Metadata catalog cũng không luôn đáng tin cậy. Title có thể ngắn hoặc tối ưu cho quảng cáo thay vì mô tả; cùng một thuộc tính có nhiều cách ghi; brand/category bị thiếu; và một số record không có video, audio hoặc bảng thông số. Vì vậy, semantic signal từ metadata có thể vừa hỗ trợ phân biệt sản phẩm, vừa tạo thêm nhiễu cho retrieval.
+Ví dụ, ảnh một chiếc túi không cho biết người dùng muốn đúng mẫu, cùng brand hay chỉ cùng kiểu dáng. Nếu query có thêm text như “da thật” hoặc “cho laptop 14 inch”, metadata catalog có thể giúp xếp hạng chính xác hơn. Ngược lại, title quảng cáo quá ngắn, brand/category thiếu hoặc thuộc tính ghi không thống nhất sẽ làm semantic signal kém tin cậy.
 
-## 5.5. Quy mô catalog và tính động của dữ liệu
+## 5.5. Model Gap: kiến thức model không bao quát mọi category
 
-Chi phí tìm kiếm exact tăng tuyến tính theo số lượng embedding, trong khi catalog e-commerce có thể gồm từ hàng chục nghìn đến hàng triệu ảnh. Hệ thống phải duy trì độ trễ thấp nhưng vẫn giữ được chất lượng xếp hạng đủ tốt; đây là trade-off cố hữu giữa exact search và approximate nearest-neighbor search.
+Model chỉ học tốt những loại sản phẩm và thuộc tính xuất hiện đủ trong dữ liệu huấn luyện. Nếu training chủ yếu chứa giày dép và quần áo, embedding có thể phân biệt tốt trong hai nhóm này nhưng không biểu diễn chính xác cặp, ba lô hoặc trang sức. Đây là Model Gap: giới hạn kiến thức theo độ bao phủ category của model, không phải lỗi region extraction.
 
-Catalog cũng thay đổi liên tục: sản phẩm mới được thêm, ảnh được thay thế, sản phẩm hết bán và metadata được hiệu chỉnh. Các cập nhật này có thể làm index, embedding và mapping metadata không đồng bộ. Vì vậy, hệ thống cần có quy trình cập nhật tăng dần hoặc tái tạo index theo lô, đồng thời benchmark lại sau các đợt thay đổi lớn của catalog [37].
+M5Product giúp giảm gap vì có 6.232 category và dữ liệu đa phương thức từ e-commerce thực tế. Text, table, video và audio cũng bổ sung tín hiệu cho các sản phẩm mà ảnh đơn lẻ khó mô tả. Tuy nhiên, M5Product không bảo đảm model sẽ đúng với mọi loại hàng: category long-tail, sản phẩm mới và category ngoài training vẫn có thể có chất lượng kém. Vì vậy, Model Gap được đánh giá bằng Precision@K/Recall@K và failure analysis tách theo nhóm category, thay vì chỉ dùng một metric trung bình toàn bộ dataset.
+
+## 5.6. Ràng buộc hệ thống: quy mô catalog và dữ liệu động
+
+Đây không phải một gap về dữ liệu hay mô hình, mà là ràng buộc vận hành. Chi phí exact search tăng tuyến tính theo số embedding, trong khi catalog e-commerce có thể gồm từ hàng chục nghìn đến hàng triệu product entry. Hệ thống phải cân bằng độ trễ với chất lượng xếp hạng giữa exact search và approximate nearest-neighbor search.
+
+Catalog cũng thay đổi liên tục: sản phẩm mới được thêm, ảnh được thay thế, sản phẩm hết bán và metadata được hiệu chỉnh. Các cập nhật này có thể làm index, embedding và mapping metadata không đồng bộ. Vì vậy, hệ thống cần quy trình cập nhật tăng dần hoặc tái tạo index theo lô, đồng thời benchmark lại sau các đợt thay đổi lớn [37].
 
 ---
 
@@ -301,12 +308,12 @@ Các bài báo trong `docs/paper/related works` cho thấy visual product search
 
 | Method | Sensory Gap | Semantic Gap | Context-Query Gap | Model Gap |
 | --- | --- | --- | --- | --- |
-| Single image CNN/I2I | Trung bình: học texture/shape tốt nhưng dễ nhạy với crop, compression. | Yếu: dễ trả về sản phẩm nhìn giống nhưng sai category. | Yếu: không hiểu intent ngoài ảnh. | Yếu: coverage phụ thuộc dữ liệu huấn luyện, không có cơ chế xử lý object/region mới. |
-| Triplet + attribute + VAE (Shopsy) | Tốt: augmentation và VAE giúp robust hơn. | Trung bình: attribute/triplet giảm sai fine-grained. | Trung bình: tốt cho image query thực tế nhưng ít context modality khác. | Trung bình: embedding tốt hơn nhưng detector/attribute vẫn bị giới hạn bởi distribution đã học. |
-| MIEM | Trung bình-Tốt: nhiều ảnh sản phẩm giảm phụ thuộc một view. | Tốt: title + image giúp hiểu category/semantic. | Trung bình: query vẫn chủ yếu image, context đến từ product title. | Trung bình: phụ thuộc image/title trong miền marketplace đã huấn luyện. |
-| MRSE | Trung bình: có image feature nhưng không tối ưu riêng cho noisy image query. | Tốt: text, image, user preference được align. | Tốt: modeling preference theo user/history. | Trung bình: representation đa phương thức không tự giải quyết việc localize object ngoài distribution. |
+| Single image CNN/I2I | Trung bình: học texture/shape tốt nhưng dễ nhạy với crop, compression. | Yếu: dễ trả về sản phẩm nhìn giống nhưng sai category. | Yếu: không hiểu intent ngoài ảnh. | Yếu: kiến thức phụ thuộc category trong dữ liệu train, khó generalize sang nhóm sản phẩm khác. |
+| Triplet + attribute + VAE (Shopsy) | Tốt: augmentation và VAE giúp robust hơn. | Trung bình: attribute/triplet giảm sai fine-grained. | Trung bình: tốt cho image query thực tế nhưng ít context modality khác. | Trung bình: vẫn bị giới hạn bởi domain/category của marketplace training data. |
+| MIEM | Trung bình-Tốt: nhiều ảnh sản phẩm giảm phụ thuộc một view. | Tốt: title + image giúp hiểu category/semantic. | Trung bình: query vẫn chủ yếu image, context đến từ product title. | Trung bình: phụ thuộc coverage category của image/title trong marketplace đã huấn luyện. |
+| MRSE | Trung bình: có image feature nhưng không tối ưu riêng cho noisy image query. | Tốt: text, image, user preference được align. | Tốt: modeling preference theo user/history. | Trung bình: representation đa phương thức vẫn cần dữ liệu đủ đa dạng để bao quát category mới. |
 | FashionMV/ProCIR | Tốt: multi-view giảm view incompleteness. | Tốt: product-level embedding và modification text. | Tốt: composed query image + text. | Yếu-Trung bình: chủ yếu được kiểm chứng trong miền fashion. |
-| **SCALE + Faiss HNSW/IVF-PQ (ours)** | **Trung bình**: cần kiểm chứng trên ảnh query thực tế. | **Tốt**: SCALE align semantic giữa modality, table/text bổ sung category/attribute. | **Tốt**: ảnh query có thể kèm text/table để làm rõ intent. | **Trung bình**: region extractor vẫn cần được kiểm thử trên category long-tail. |
+| **SCALE + Faiss HNSW/IVF-PQ (ours)** | **Trung bình**: cần kiểm chứng trên ảnh query thực tế. | **Tốt**: SCALE align semantic giữa modality, table/text bổ sung category/attribute. | **Tốt**: ảnh query có thể kèm text/table để làm rõ intent. | **Tốt-Trung bình**: M5Product có 6.232 category giúp mở rộng coverage, nhưng vẫn cần test long-tail/out-of-distribution. |
 
 ## 6.4. Vì sao lựa chọn này phù hợp với Product E-commerce Retrieval
 
@@ -321,7 +328,7 @@ SCALE phù hợp hơn các hướng image-only vì dữ liệu e-commerce không
 | Sensory Gap | Image/video branch giúp học nhiều góc nhìn; cần đánh giá riêng trên ảnh query nhiễu. |
 | Semantic Gap | Text/table branch bổ sung category, brand, material, function để tránh trả về sản phẩm chỉ giống texture nhưng sai ý nghĩa. |
 | Context-Query Gap | Ảnh query có thể kèm text/table ngắn để làm rõ intent; nếu không có, hệ thống vẫn truy hồi bằng ảnh. |
-| Model Gap | SCALE bổ sung tín hiệu text/table/video/audio cho representation, nhưng không thay thế detector. Cần đo recall của region proposal theo category và ghi nhận failure case ngoài distribution. |
+| Model Gap | M5Product cung cấp nhiều category và SCALE học từ 5 modality, nên coverage tốt hơn dataset đơn miền. Cần báo cáo metric theo category để nhận ra long-tail hoặc out-of-distribution failure. |
 
 Điểm mạnh quan trọng của SCALE là **Self-harmonized Inter-Modality Contrastive Learning (SIMCL)**. Với 5 modality, không phải cặp modality nào cũng hữu ích như nhau. Ví dụ image-text thường mạnh trong retrieval, image-audio có thể chỉ hữu ích với một số category. SIMCL học trọng số alignment giữa các modality, nhờ đó mô hình không ép mọi modality đóng góp ngang nhau. Điều này phù hợp với catalog e-commerce vì dữ liệu thường thiếu modality, nhiễu và long-tail.
 
@@ -934,37 +941,36 @@ sequenceDiagram
 
 ## 7.20. Phương pháp giải quyết các thách thức thực hiện
 
-Methodology được thiết kế để xử lý trực tiếp các gap ở Mục 02 và các thách thức thực hiện ở Mục 05, thay vì chỉ tối ưu similarity giữa hai ảnh. Mỗi thành phần giải quyết một phần rủi ro; vì vậy, hiệu quả cuối cùng cần được đánh giá đồng thời theo representation quality, retrieval quality và system quality.
+Methodology không tuyên bố loại bỏ hoàn toàn mọi gap ở Mục 02/Mục 05. SCALE và M5Product chủ yếu cải thiện representation; Faiss giải quyết ràng buộc latency ở catalog lớn; hai re-ranking ở Mục 08 chỉ điều chỉnh thứ tự kết quả. Vì vậy, mỗi gap cần được gắn với cơ chế phù hợp và metric riêng.
 
 | Thách thức | Thành phần xử lý chính | Cơ chế và giới hạn |
 | --- | --- | --- |
-| Domain gap giữa query và catalog | Image preprocessing, region features và multi-view video | Region feature và nhiều view giảm ảnh hưởng của background. Hiệu quả vẫn phụ thuộc chất lượng ảnh query và độ đa dạng của catalog. |
-| Fine-grained attributes và crop query | Image regions, title/table encoder, JCT và rerank top-N | JCT liên kết chi tiết ảnh với brand, material, color hoặc size trong metadata. Với query quá nhỏ hoặc bị che khuất, hệ thống vẫn có thể cần object grounding chuyên biệt. |
-| Missing modality và metadata noise | Modality-specific encoder, attention mask, zero imputation và SIMCL | Query/candidate có modality thiếu vẫn có thể được encode; SIMCL điều chỉnh đóng góp giữa modality. Zero imputation không tự tạo thông tin còn thiếu, nên metadata nhiễu vẫn là rủi ro. |
-| Model gap của region extractor | Region recall benchmark và failure logging theo category | Detector có thể bỏ sót object ngoài distribution; cần đo riêng các failure case này trước khi kết luận về retrieval. |
-| Metadata noise | MEM, cross-modal contrastive learning và validation metadata | Key-value structure giúp phân biệt vai trò của thuộc tính; cross-modal loss giảm phụ thuộc vào một nguồn. Cần tiền xử lý và kiểm tra metadata trước khi index. |
-| Quy mô, latency và catalog update | Embedding offline, Flat baseline, Faiss HNSW/IVF-PQ và metadata mapping | Flat tách lỗi representation khỏi lỗi ANN; HNSW phục vụ prototype latency thấp; IVF-PQ giảm memory khi catalog lớn. Update catalog cần quy trình add/rebuild và benchmark định kỳ. |
+| Sensory Gap | Image regions và multi-view video trong SCALE | Giảm một phần ảnh hưởng của background/góc nhìn; vẫn phải đo riêng trên noise slice vì proposal không có cải tiến query-noise riêng. |
+| Semantic Gap | Text/table encoder, JCT và attribute-aware re-ranking ở Mục 08 | Kết hợp chi tiết ảnh với model, material, color hoặc size; re-ranking chỉ hiệu quả khi query có context đáng tin cậy. |
+| Context-Query Gap | Query text/table tùy chọn, modality encoder, JCT, zero imputation và validation metadata | Khi có context, hệ thống tận dụng metadata để làm rõ intent; khi chỉ có ảnh, hệ thống không suy diễn ràng buộc từ Top-1. |
+| Model Gap | M5Product đa category và evaluation theo category | M5Product mở rộng coverage so với dataset đơn miền, nhưng long-tail/out-of-distribution vẫn là giới hạn cần báo cáo. |
+| Ràng buộc hệ thống | Embedding offline, `IndexFlatIP`, Faiss HNSW/IVF-PQ, exact re-ranking ở Mục 08 và metadata mapping | Flat tách lỗi representation khỏi ANN; HNSW giảm latency; IVF-PQ giảm memory; exact re-ranking sửa thứ tự trong Top-N, không thay thế index. |
 
 Nhờ cách phân tách này, kết quả thực nghiệm có thể trả lời rõ ba câu hỏi: embedding có phân biệt đúng sản phẩm không, ANN đã đánh đổi bao nhiêu chất lượng để đổi lấy tốc độ, và nhóm query nào vẫn là failure case cần cải thiện.
 
 ## 7.21. Summary
 
-SCALE + Faiss-based retrieval phù hợp với đề tài vì SCALE học representation chung cho 5 modality và tự cân bằng đóng góp giữa các modality, còn Flat/HNSW/IVF-PQ biến embedding đó thành hệ thống truy hồi có thể đo đạc và mở rộng. Điểm cần nhấn mạnh là mỗi block trong kiến trúc đều có vai trò cụ thể: image branch học vùng sản phẩm, text branch học mô tả, table branch học thuộc tính có cấu trúc, video branch học góc nhìn theo thời gian, audio branch học tín hiệu âm thanh/voice, JCT học quan hệ giữa tất cả token, SIMCL học cách cân bằng modality, và Faiss HNSW/IVF-PQ phục vụ truy hồi top-K ở quy mô lớn.
+SCALE + Faiss-based retrieval phù hợp với đề tài vì SCALE học representation chung cho 5 modality, còn Faiss biến embedding đó thành hệ thống truy hồi có thể đo đạc và mở rộng. Pipeline cải thiện representation và khả năng phục vụ, nhưng không tự giải quyết hoàn toàn ảnh query nhiễu, category ngoài training hay metadata sai. Vì vậy, kết quả cần được báo cáo theo Sensory, Semantic, Context-Query, Model Gap và ràng buộc hệ thống thay vì chỉ nêu một metric trung bình.
 
 ---
 
 # 08. Cải thiện đề xuất
 
-Mục này chỉ trình bày hai cải tiến ở tầng retrieval index: exact re-ranking và attribute-aware re-ranking. Cả hai đều chạy sau Faiss HNSW, nên không thay đổi kiến trúc SCALE hay cách tạo embedding.
+Mục 05 phân chia bốn gap và một ràng buộc hệ thống. Hai cải tiến trong mục này chỉ hoạt động ở **sau Faiss HNSW**; vì vậy chúng không thay đổi SCALE, không thay thế M5Product và không giải quyết tất cả thách thức.
 
-| Cải tiến | Challenge/gap được xử lý | Mục đích trực tiếp | Chỉ số kiểm chứng |
+| Cải tiến | Liên hệ với Mục 05 | Mục đích | Không giải quyết trực tiếp |
 | --- | --- | --- | --- |
-| Exact re-ranking | Sai số xấp xỉ của ANN và sai thứ tự giữa các candidate có embedding gần nhau. | Sắp xếp lại Top-N bằng điểm exact để tăng chất lượng Top-K. | Precision@K, Recall@K và latency trước/sau re-ranking. |
-| Attribute-aware re-ranking | Semantic gap ở thuộc tính quyết định tính tương thích: model, size, compatibility. | Ưu tiên candidate thỏa thuộc tính query, tránh kết quả nhìn giống nhưng dùng sai. | Precision@K trên query có text/table; kiểm tra metric chung không giảm. |
+| Exact re-ranking | Ràng buộc hệ thống ở Mục 5.6: ANN có thể xếp sai thứ tự. | Sắp xếp lại Top-N bằng điểm exact để cải thiện Top-K. | Sensory Gap, Model Gap và candidate bị HNSW bỏ sót hoàn toàn. |
+| Attribute-aware re-ranking | Semantic Gap ở Mục 5.3 và Context-Query Gap ở Mục 5.4. | Dùng thuộc tính query đáng tin cậy để ưu tiên sản phẩm tương thích. | Không giúp khi query chỉ có ảnh hoặc metadata không tin cậy. |
 
 ## 8.1. Flow cơ sở và flow sau cải thiện
 
-Flow cơ sở trả trực tiếp Top-K từ HNSW. Flow mới lấy Top-N lớn hơn, sắp xếp lại bằng điểm exact, sau đó chỉ dùng thuộc tính nếu query có text/table đáng tin cậy.
+Flow cơ sở trả trực tiếp Top-K từ HNSW. Flow mới lấy Top-N lớn hơn, tính lại điểm exact và chỉ kiểm tra thuộc tính khi query có text/table đáng tin cậy.
 
 ```mermaid
 flowchart LR
@@ -986,43 +992,46 @@ flowchart LR
     B --> K
 ```
 
-## 8.2. Exact re-ranking
+## 8.2. Exact re-ranking cho ràng buộc ANN
 
-**Vấn đề:** HNSW ưu tiên tốc độ, nên có thể xếp sai thứ tự các candidate có điểm gần nhau.
+**Thách thức liên quan:** Ở Mục 5.6, HNSW dùng approximate nearest-neighbor search để giảm latency. Đổi lại, các candidate có score gần nhau có thể bị xếp sai thứ tự.
 
-**Cách làm:** HNSW lấy Top-N, ví dụ 100 candidate. Hệ thống tính lại inner product chính xác giữa embedding query và từng candidate trong Top-N, rồi sắp xếp lại trước khi trả Top-K.
+**Cách làm:** HNSW lấy Top-N, ví dụ 100 candidate. Hệ thống tính lại inner product chính xác giữa query embedding và từng candidate trong Top-N, sau đó sắp xếp lại trước khi trả Top-K.
 
 ```text
 HNSW lấy Top-N -> tính exact inner product trên Top-N -> trả Top-K
 ```
 
-**Challenge được giải quyết:** sai số ANN trong Mục 5.5. HNSW ưu tiên tốc độ nên có thể cho score xấp xỉ và sai thứ tự ở nhóm candidate sát nhau.
+**Mục đích:** tăng chất lượng thứ tự Top-K nhưng không phải exact search trên toàn bộ gallery.
 
-**Mục đích:** cải thiện thứ tự của các kết quả đầu mà không cần exact search trên toàn bộ gallery. Vì exact score chỉ tính trên Top-N nhỏ, chi phí tăng thêm được kiểm soát.
-
-**Giới hạn:** chỉ sắp xếp lại candidate đã thuộc Top-N; không thể khôi phục sản phẩm mà HNSW không trả về.
+**Giới hạn:** bước này chỉ đổi thứ tự candidate đã có trong Top-N. Nếu HNSW không đưa sản phẩm đúng vào Top-N, re-ranking không thể khôi phục nó.
 
 **Đánh giá:** so sánh Precision@K, Recall@K và latency trước/sau re-ranking; chọn `N` và `efSearch` bằng validation set.
 
-## 8.3. Attribute-aware re-ranking
+## 8.3. Attribute-aware re-ranking cho Semantic và Context-Query Gap
 
-**Vấn đề:** hai sản phẩm có thể giống ảnh nhưng không tương thích về mặt thương mại, ví dụ ốp lưng iPhone 14 và iPhone 15.
+**Thách thức liên quan:** Semantic Gap ở Mục 5.3 xảy ra khi sản phẩm nhìn giống nhưng khác model, size hoặc compatibility. Context-Query Gap ở Mục 5.4 xảy ra vì ảnh query không luôn nói rõ ràng buộc người dùng cần.
 
 **Cách làm:** chỉ khi query có text hoặc bảng thuộc tính đáng tin cậy, hệ thống kiểm tra metadata của candidate trong Top-N sau exact re-ranking. Candidate khớp model, size hoặc compatibility được ưu tiên cao hơn; màu sắc/texture chỉ là thuộc tính phụ.
 
-**Challenge được giải quyết:** semantic gap và nhiễu metadata ở Mục 5.3–5.4. Visual similarity không đủ để kiểm tra các ràng buộc như đúng model máy, kích thước hoặc compatibility.
+**Mục đích:** tránh kết quả “nhìn giống nhưng dùng sai”, ví dụ ốp iPhone 14 được xếp trên ốp iPhone 15 khi query ghi rõ “iPhone 14”.
 
-**Mục đích:** giảm semantic gap và tránh kết quả “nhìn giống nhưng dùng sai”. Metadata chỉ được dùng để điều chỉnh thứ tự trong Top-N, không thay thế score embedding.
-
-**Giới hạn:** không lấy metadata của Top-1 làm nhãn cho query. Nếu Top-1 sai, cách này sẽ khuếch đại lỗi. Khi query chỉ có ảnh, hệ thống dừng ở exact re-ranking.
+**Giới hạn:** không lấy metadata của Top-1 làm nhãn cho query vì Top-1 sai sẽ khuếch đại lỗi. Khi query chỉ có ảnh, hoặc metadata không tin cậy, hệ thống chỉ dùng exact re-ranking ở Mục 8.2.
 
 **Đánh giá:** đo Precision@K trên tập query có text/table và kiểm tra rằng metric chung không giảm.
 
-## 8.4. Thứ tự triển khai
+## 8.4. Phần còn lại của Mục 05 được xử lý như thế nào?
+
+- **Sensory Gap (Mục 5.2):** SCALE dùng image regions và catalog có nhiều view, nhưng proposal không thêm cải tiến riêng cho ảnh query nhiễu. Chất lượng được kiểm tra bằng noise slice trong evaluation.
+- **Model Gap (Mục 5.5):** M5Product có 6.232 category giúp mở rộng kiến thức model. Gap này không thể loại bỏ bằng re-ranking; cần báo cáo metric và failure case theo category, đặc biệt long-tail/out-of-distribution.
+- **Metadata noise (Mục 5.4):** attribute-aware re-ranking chỉ chạy khi metadata query đáng tin cậy; metadata nhiễu vẫn được coi là failure case, không được tự động tin tưởng.
+
+## 8.5. Thứ tự triển khai
 
 1. Chạy baseline SCALE + `IndexFlatIP` + HNSW.
 2. Thêm exact re-ranking và chọn `N`, `efSearch` theo validation set.
 3. Chỉ bật attribute-aware re-ranking cho query có text/table đủ tin cậy.
+4. Báo cáo riêng hiệu quả theo gap: noise slice, category slice, query có/không có context và ANN recall loss.
 
 Hai cải tiến chỉ được giữ khi metric tốt hơn baseline tương ứng và latency vẫn đáp ứng yêu cầu demo.
 
@@ -1073,7 +1082,7 @@ Paper M5Product/SCALE báo cáo retrieval bằng mAP và Precision. Recall@K, ND
 | Large-scale retrieval | `IndexFlatIP` baseline, Faiss HNSW index chính, IVF-PQ khi cần giảm memory. | Exact search chậm, prototype index thiếu benchmark. |
 | Robustness | Báo cáo theo từng nhóm query nhiễu và missing modality. | Dễ giảm chất lượng khi query nhiễu. |
 | Evaluation | Kết hợp model metrics và system metrics. | Nhiều demo chỉ đánh giá qualitative. |
-| Failure analysis | Phân tích theo nhiễu ảnh, category, missing metadata, region proposal và loại index. | Nhiều demo chỉ đánh giá qualitative. |
+| Failure analysis | Phân tích theo nhiễu ảnh, nhóm category, missing metadata và loại index. | Nhiều demo chỉ đánh giá qualitative. |
 
 ## 9.5. Target kỳ vọng ban đầu
 
@@ -1108,7 +1117,7 @@ Kế hoạch kéo dài 2 tháng, chia thành 8 tuần.
 | --- | --- | --- |
 | Week 1 | Đọc paper, chốt problem statement, chuẩn hóa proposal, khảo sát dataset M5Product. | Proposal hoàn chỉnh, danh sách requirement và metric. |
 | Week 2 | Chuẩn bị data loader, preprocess image/text/table/video/audio, thiết kế schema metadata. | Pipeline đọc dữ liệu và kiểm tra sample. |
-| Week 3 | Cài đặt hoặc tái hiện SCALE feature extraction; chạy thử trên subset nhỏ và kiểm tra region proposal. | Embedding extraction chạy được; có thống kê region recall/region failure cơ bản. |
+| Week 3 | Cài đặt hoặc tái hiện SCALE feature extraction; chạy thử trên subset nhiều nhóm category. | Embedding extraction chạy được; có thống kê metric/failure cơ bản theo category. |
 | Week 4 | Pretrain/finetune thử nghiệm và tạo failure slice cho ảnh nhiễu/nhiều object. | Checkpoint đầu tiên, log training và bộ kiểm tra robustness/region failure. |
 | Week 5 | Export gallery/query embeddings, xây `IndexFlatIP` baseline và Faiss HNSW index. | Index đầu tiên, kết quả Precision@K/Recall@K baseline. |
 | Week 6 | Tune Faiss HNSW và Faiss IVF-PQ/OPQ-PQ với `IndexFlatIP` làm exact baseline; thử exact re-ranking trên Top-N. | Bảng Recall@K, latency, QPS, memory, build time và ablation re-ranking. |
@@ -1139,7 +1148,7 @@ Kế hoạch kéo dài 2 tháng, chia thành 8 tuần.
 | M5Product quá lớn hoặc khó tải đầy đủ | Chậm training và storage cao. | Dùng subset theo category, ưu tiên image/text/table trước. |
 | GPU hạn chế | Không train full SCALE được. | Dùng pretrained/finetune nhỏ, freeze backbone, giảm batch size. |
 | Label retrieval không đủ | Metric yếu. | Dùng category label, instance label hoặc human-labeled subset nhỏ. |
-| Detector bỏ sót sản phẩm long-tail | Embedding không nhận được đúng region cần truy hồi. | Đo region recall theo category và ghi nhận failure case. |
+| Category long-tail hoặc ngoài training | Kiến thức model không bao quát đủ loại sản phẩm. | Đo metric theo category, ghi nhận failure case và nêu rõ giới hạn coverage của dataset/model. |
 | Demo latency cao | Trải nghiệm demo kém. | Cache embedding, batch offline và tối ưu batch size. |
 
 ---

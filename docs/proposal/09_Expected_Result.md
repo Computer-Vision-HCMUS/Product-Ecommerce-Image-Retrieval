@@ -43,7 +43,7 @@ Paper M5Product/SCALE báo cáo retrieval bằng mAP và Precision. Recall@K, ND
 | Large-scale retrieval | `IndexFlatIP` baseline, Faiss HNSW index chính, IVF-PQ khi cần giảm memory. | Exact search chậm, prototype index thiếu benchmark. |
 | Robustness | Báo cáo theo từng nhóm query nhiễu và missing modality. | Dễ giảm chất lượng khi query nhiễu. |
 | Evaluation | Kết hợp model metrics và system metrics. | Nhiều demo chỉ đánh giá qualitative. |
-| Failure analysis | Phân tích theo nhiễu ảnh, category, missing metadata, region proposal và loại index. | Nhiều demo chỉ đánh giá qualitative. |
+| Failure analysis | Phân tích theo nhiễu ảnh, nhóm category, missing metadata và loại index. | Nhiều demo chỉ đánh giá qualitative. |
 
 ## 9.5. Target kỳ vọng ban đầu
 

@@ -41,6 +41,7 @@ Bài báo M5Product mô tả training set gồm **4,423,160 samples** từ **3,5
 - Có dữ liệu lớn để học embedding robust.
 - Có missing modality, giúp kiểm tra khả năng vận hành khi catalog không đầy đủ.
 - Có category đa dạng hơn các dataset thời trang hẹp miền.
+- Có 6.232 category nên giúp mở rộng kiến thức của model ngoài các nhóm quen thuộc như giày dép hoặc quần áo; tuy vậy vẫn cần đánh giá riêng category long-tail và category ngoài training.
 - Có task retrieval, classification và clustering để đánh giá embedding.
 
 ## 3.6. Cách sử dụng trong đề tài

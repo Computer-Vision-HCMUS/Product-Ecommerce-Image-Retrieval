@@ -30,14 +30,14 @@ E-commerce catalog thường có thuộc tính không đầy đủ. Sản phẩm
 
 ## 2.3. Các gap cần xử lý
 
-| Gap | Mô tả | Tác động tới search |
-| --- | --- | --- |
-| Sensory Gap | Khác biệt giữa ảnh catalog đẹp và ảnh query ngoài đời: ánh sáng, góc chụp, crop, compression. | Làm embedding lệch dù là cùng sản phẩm. |
-| Semantic Gap | Đặc trưng pixel giống nhau nhưng category/intent khác nhau. | Trả về sản phẩm nhìn giống nhưng không đúng nhu cầu mua. |
-| Context-Query Gap | Query của người dùng thiếu ngữ cảnh hoặc có ngữ cảnh khác catalog. | Khó hiểu người dùng muốn cùng sản phẩm, cùng style hay cùng chức năng. |
-| Model Gap | Khả năng nhận biết/đề xuất vùng của model không bao quát mọi loại sản phẩm, thuộc tính và bối cảnh trong ảnh thực tế. | Có thể bỏ sót object hoặc lấy sai region trước khi bước embedding và retrieval diễn ra. |
+| Gap | Mô tả | Ví dụ | Tác động tới search |
+| --- | --- | --- | --- |
+| Sensory Gap | Ảnh catalog và ảnh query khác nhau về ánh sáng, góc chụp, crop hoặc compression. | Cùng một đôi giày, nhưng query chụp thiếu sáng và bị watermark. | Embedding lệch dù là cùng sản phẩm. |
+| Semantic Gap | Ảnh giống về pixel/texture nhưng khác ý nghĩa thương mại hoặc thuộc tính quyết định mua. | Hai ốp điện thoại giống màu nhưng dành cho iPhone 14 và iPhone 15. | Trả về sản phẩm nhìn giống nhưng không đúng nhu cầu mua. |
+| Context-Query Gap | Query thiếu ngữ cảnh so với catalog có title, brand, category và specification. | Chỉ có ảnh một chiếc túi, không biết người dùng cần đúng mẫu hay túi cùng kiểu. | Khó xác định tiêu chí relevance và tận dụng metadata đúng cách. |
+| Model Gap | Kiến thức mô hình chỉ bao quát các category và kiểu sản phẩm đã thấy đủ trong dữ liệu huấn luyện. | Model học tốt giày dép/quần áo nhưng nhầm cặp, ba lô hoặc trang sức. | Embedding không biểu diễn đúng sản phẩm thuộc category ít gặp hoặc ngoài phân bố dữ liệu. |
 
-**Model Gap** khác với việc catalog có nhiều modality. Đây là khoảng cách giữa phạm vi object/region mà mô hình đã học và phạm vi sản phẩm xuất hiện khi người dùng truy vấn. Ví dụ, detector kiểu YOLO phụ thuộc vào các class và phân bố dữ liệu huấn luyện; do đó không nên giả định nó sẽ phát hiện đúng mọi sản phẩm mới hoặc long-tail. Với đề tài này, gap được theo dõi bằng region recall và failure analysis, không được xem là một cải tiến bổ sung của pipeline.
+**Model Gap** khác với việc catalog có nhiều modality hoặc detector chọn sai vùng. Đây là khoảng cách giữa kiến thức model học từ dữ liệu huấn luyện và độ đa dạng của sản phẩm thực tế. Dataset M5Product giúp giảm gap này vì có hơn 6.000 category, 5 modality và dữ liệu e-commerce đa dạng hơn dataset thời trang hẹp miền. Tuy nhiên, nó không loại bỏ hoàn toàn gap: category hiếm, sản phẩm mới hoặc category không có trong training vẫn cần được đánh giá riêng theo từng nhóm category.
 
 ## 2.4. Quy trình visual search điển hình
 

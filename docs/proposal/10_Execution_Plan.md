@@ -8,7 +8,7 @@ Kế hoạch kéo dài 2 tháng, chia thành 8 tuần.
 | --- | --- | --- |
 | Week 1 | Đọc paper, chốt problem statement, chuẩn hóa proposal, khảo sát dataset M5Product. | Proposal hoàn chỉnh, danh sách requirement và metric. |
 | Week 2 | Chuẩn bị data loader, preprocess image/text/table/video/audio, thiết kế schema metadata. | Pipeline đọc dữ liệu và kiểm tra sample. |
-| Week 3 | Cài đặt hoặc tái hiện SCALE feature extraction; chạy thử trên subset nhỏ và kiểm tra region proposal. | Embedding extraction chạy được; có thống kê region recall/region failure cơ bản. |
+| Week 3 | Cài đặt hoặc tái hiện SCALE feature extraction; chạy thử trên subset nhiều nhóm category. | Embedding extraction chạy được; có thống kê metric/failure cơ bản theo category. |
 | Week 4 | Pretrain/finetune thử nghiệm và tạo failure slice cho ảnh nhiễu/nhiều object. | Checkpoint đầu tiên, log training và bộ kiểm tra robustness/region failure. |
 | Week 5 | Export gallery/query embeddings, xây `IndexFlatIP` baseline và Faiss HNSW index. | Index đầu tiên, kết quả Precision@K/Recall@K baseline. |
 | Week 6 | Tune Faiss HNSW và Faiss IVF-PQ/OPQ-PQ với `IndexFlatIP` làm exact baseline; thử exact re-ranking trên Top-N. | Bảng Recall@K, latency, QPS, memory, build time và ablation re-ranking. |
@@ -39,5 +39,5 @@ Kế hoạch kéo dài 2 tháng, chia thành 8 tuần.
 | M5Product quá lớn hoặc khó tải đầy đủ | Chậm training và storage cao. | Dùng subset theo category, ưu tiên image/text/table trước. |
 | GPU hạn chế | Không train full SCALE được. | Dùng pretrained/finetune nhỏ, freeze backbone, giảm batch size. |
 | Label retrieval không đủ | Metric yếu. | Dùng category label, instance label hoặc human-labeled subset nhỏ. |
-| Detector bỏ sót sản phẩm long-tail | Embedding không nhận được đúng region cần truy hồi. | Đo region recall theo category và ghi nhận failure case. |
+| Category long-tail hoặc ngoài training | Kiến thức model không bao quát đủ loại sản phẩm. | Đo metric theo category, ghi nhận failure case và nêu rõ giới hạn coverage của dataset/model. |
 | Demo latency cao | Trải nghiệm demo kém. | Cache embedding, batch offline và tối ưu batch size. |

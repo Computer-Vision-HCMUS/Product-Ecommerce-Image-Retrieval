@@ -18,12 +18,12 @@ Các bài báo trong `docs/paper/related works` cho thấy visual product search
 
 | Method | Sensory Gap | Semantic Gap | Context-Query Gap | Model Gap |
 | --- | --- | --- | --- | --- |
-| Single image CNN/I2I | Trung bình: học texture/shape tốt nhưng dễ nhạy với crop, compression. | Yếu: dễ trả về sản phẩm nhìn giống nhưng sai category. | Yếu: không hiểu intent ngoài ảnh. | Yếu: coverage phụ thuộc dữ liệu huấn luyện, không có cơ chế xử lý object/region mới. |
-| Triplet + attribute + VAE (Shopsy) | Tốt: augmentation và VAE giúp robust hơn. | Trung bình: attribute/triplet giảm sai fine-grained. | Trung bình: tốt cho image query thực tế nhưng ít context modality khác. | Trung bình: embedding tốt hơn nhưng detector/attribute vẫn bị giới hạn bởi distribution đã học. |
-| MIEM | Trung bình-Tốt: nhiều ảnh sản phẩm giảm phụ thuộc một view. | Tốt: title + image giúp hiểu category/semantic. | Trung bình: query vẫn chủ yếu image, context đến từ product title. | Trung bình: phụ thuộc image/title trong miền marketplace đã huấn luyện. |
-| MRSE | Trung bình: có image feature nhưng không tối ưu riêng cho noisy image query. | Tốt: text, image, user preference được align. | Tốt: modeling preference theo user/history. | Trung bình: representation đa phương thức không tự giải quyết việc localize object ngoài distribution. |
+| Single image CNN/I2I | Trung bình: học texture/shape tốt nhưng dễ nhạy với crop, compression. | Yếu: dễ trả về sản phẩm nhìn giống nhưng sai category. | Yếu: không hiểu intent ngoài ảnh. | Yếu: kiến thức phụ thuộc category trong dữ liệu train, khó generalize sang nhóm sản phẩm khác. |
+| Triplet + attribute + VAE (Shopsy) | Tốt: augmentation và VAE giúp robust hơn. | Trung bình: attribute/triplet giảm sai fine-grained. | Trung bình: tốt cho image query thực tế nhưng ít context modality khác. | Trung bình: vẫn bị giới hạn bởi domain/category của marketplace training data. |
+| MIEM | Trung bình-Tốt: nhiều ảnh sản phẩm giảm phụ thuộc một view. | Tốt: title + image giúp hiểu category/semantic. | Trung bình: query vẫn chủ yếu image, context đến từ product title. | Trung bình: phụ thuộc coverage category của image/title trong marketplace đã huấn luyện. |
+| MRSE | Trung bình: có image feature nhưng không tối ưu riêng cho noisy image query. | Tốt: text, image, user preference được align. | Tốt: modeling preference theo user/history. | Trung bình: representation đa phương thức vẫn cần dữ liệu đủ đa dạng để bao quát category mới. |
 | FashionMV/ProCIR | Tốt: multi-view giảm view incompleteness. | Tốt: product-level embedding và modification text. | Tốt: composed query image + text. | Yếu-Trung bình: chủ yếu được kiểm chứng trong miền fashion. |
-| **SCALE + Faiss HNSW/IVF-PQ (ours)** | **Trung bình**: cần kiểm chứng trên ảnh query thực tế. | **Tốt**: SCALE align semantic giữa modality, table/text bổ sung category/attribute. | **Tốt**: ảnh query có thể kèm text/table để làm rõ intent. | **Trung bình**: region extractor vẫn cần được kiểm thử trên category long-tail. |
+| **SCALE + Faiss HNSW/IVF-PQ (ours)** | **Trung bình**: cần kiểm chứng trên ảnh query thực tế. | **Tốt**: SCALE align semantic giữa modality, table/text bổ sung category/attribute. | **Tốt**: ảnh query có thể kèm text/table để làm rõ intent. | **Tốt-Trung bình**: M5Product có 6.232 category giúp mở rộng coverage, nhưng vẫn cần test long-tail/out-of-distribution. |
 
 ## 6.4. Vì sao lựa chọn này phù hợp với Product E-commerce Retrieval
 
@@ -38,7 +38,7 @@ SCALE phù hợp hơn các hướng image-only vì dữ liệu e-commerce không
 | Sensory Gap | Image/video branch giúp học nhiều góc nhìn; cần đánh giá riêng trên ảnh query nhiễu. |
 | Semantic Gap | Text/table branch bổ sung category, brand, material, function để tránh trả về sản phẩm chỉ giống texture nhưng sai ý nghĩa. |
 | Context-Query Gap | Ảnh query có thể kèm text/table ngắn để làm rõ intent; nếu không có, hệ thống vẫn truy hồi bằng ảnh. |
-| Model Gap | SCALE bổ sung tín hiệu text/table/video/audio cho representation, nhưng không thay thế detector. Cần đo recall của region proposal theo category và ghi nhận failure case ngoài distribution. |
+| Model Gap | M5Product cung cấp nhiều category và SCALE học từ 5 modality, nên coverage tốt hơn dataset đơn miền. Cần báo cáo metric theo category để nhận ra long-tail hoặc out-of-distribution failure. |
 
 Điểm mạnh quan trọng của SCALE là **Self-harmonized Inter-Modality Contrastive Learning (SIMCL)**. Với 5 modality, không phải cặp modality nào cũng hữu ích như nhau. Ví dụ image-text thường mạnh trong retrieval, image-audio có thể chỉ hữu ích với một số category. SIMCL học trọng số alignment giữa các modality, nhờ đó mô hình không ép mọi modality đóng góp ngang nhau. Điều này phù hợp với catalog e-commerce vì dữ liệu thường thiếu modality, nhiễu và long-tail.
 

@@ -1,15 +1,15 @@
 # 08. Cải thiện đề xuất
 
-Mục này chỉ trình bày hai cải tiến ở tầng retrieval index: exact re-ranking và attribute-aware re-ranking. Cả hai đều chạy sau Faiss HNSW, nên không thay đổi kiến trúc SCALE hay cách tạo embedding.
+Mục 05 phân chia bốn gap và một ràng buộc hệ thống. Hai cải tiến trong mục này chỉ hoạt động ở **sau Faiss HNSW**; vì vậy chúng không thay đổi SCALE, không thay thế M5Product và không giải quyết tất cả thách thức.
 
-| Cải tiến | Challenge/gap được xử lý | Mục đích trực tiếp | Chỉ số kiểm chứng |
+| Cải tiến | Liên hệ với Mục 05 | Mục đích | Không giải quyết trực tiếp |
 | --- | --- | --- | --- |
-| Exact re-ranking | Sai số xấp xỉ của ANN và sai thứ tự giữa các candidate có embedding gần nhau. | Sắp xếp lại Top-N bằng điểm exact để tăng chất lượng Top-K. | Precision@K, Recall@K và latency trước/sau re-ranking. |
-| Attribute-aware re-ranking | Semantic gap ở thuộc tính quyết định tính tương thích: model, size, compatibility. | Ưu tiên candidate thỏa thuộc tính query, tránh kết quả nhìn giống nhưng dùng sai. | Precision@K trên query có text/table; kiểm tra metric chung không giảm. |
+| Exact re-ranking | Ràng buộc hệ thống ở Mục 5.6: ANN có thể xếp sai thứ tự. | Sắp xếp lại Top-N bằng điểm exact để cải thiện Top-K. | Sensory Gap, Model Gap và candidate bị HNSW bỏ sót hoàn toàn. |
+| Attribute-aware re-ranking | Semantic Gap ở Mục 5.3 và Context-Query Gap ở Mục 5.4. | Dùng thuộc tính query đáng tin cậy để ưu tiên sản phẩm tương thích. | Không giúp khi query chỉ có ảnh hoặc metadata không tin cậy. |
 
 ## 8.1. Flow cơ sở và flow sau cải thiện
 
-Flow cơ sở trả trực tiếp Top-K từ HNSW. Flow mới lấy Top-N lớn hơn, sắp xếp lại bằng điểm exact, sau đó chỉ dùng thuộc tính nếu query có text/table đáng tin cậy.
+Flow cơ sở trả trực tiếp Top-K từ HNSW. Flow mới lấy Top-N lớn hơn, tính lại điểm exact và chỉ kiểm tra thuộc tính khi query có text/table đáng tin cậy.
 
 ```mermaid
 flowchart LR
@@ -31,42 +31,45 @@ flowchart LR
     B --> K
 ```
 
-## 8.2. Exact re-ranking
+## 8.2. Exact re-ranking cho ràng buộc ANN
 
-**Vấn đề:** HNSW ưu tiên tốc độ, nên có thể xếp sai thứ tự các candidate có điểm gần nhau.
+**Thách thức liên quan:** Ở Mục 5.6, HNSW dùng approximate nearest-neighbor search để giảm latency. Đổi lại, các candidate có score gần nhau có thể bị xếp sai thứ tự.
 
-**Cách làm:** HNSW lấy Top-N, ví dụ 100 candidate. Hệ thống tính lại inner product chính xác giữa embedding query và từng candidate trong Top-N, rồi sắp xếp lại trước khi trả Top-K.
+**Cách làm:** HNSW lấy Top-N, ví dụ 100 candidate. Hệ thống tính lại inner product chính xác giữa query embedding và từng candidate trong Top-N, sau đó sắp xếp lại trước khi trả Top-K.
 
 ```text
 HNSW lấy Top-N -> tính exact inner product trên Top-N -> trả Top-K
 ```
 
-**Challenge được giải quyết:** sai số ANN trong Mục 5.5. HNSW ưu tiên tốc độ nên có thể cho score xấp xỉ và sai thứ tự ở nhóm candidate sát nhau.
+**Mục đích:** tăng chất lượng thứ tự Top-K nhưng không phải exact search trên toàn bộ gallery.
 
-**Mục đích:** cải thiện thứ tự của các kết quả đầu mà không cần exact search trên toàn bộ gallery. Vì exact score chỉ tính trên Top-N nhỏ, chi phí tăng thêm được kiểm soát.
-
-**Giới hạn:** chỉ sắp xếp lại candidate đã thuộc Top-N; không thể khôi phục sản phẩm mà HNSW không trả về.
+**Giới hạn:** bước này chỉ đổi thứ tự candidate đã có trong Top-N. Nếu HNSW không đưa sản phẩm đúng vào Top-N, re-ranking không thể khôi phục nó.
 
 **Đánh giá:** so sánh Precision@K, Recall@K và latency trước/sau re-ranking; chọn `N` và `efSearch` bằng validation set.
 
-## 8.3. Attribute-aware re-ranking
+## 8.3. Attribute-aware re-ranking cho Semantic và Context-Query Gap
 
-**Vấn đề:** hai sản phẩm có thể giống ảnh nhưng không tương thích về mặt thương mại, ví dụ ốp lưng iPhone 14 và iPhone 15.
+**Thách thức liên quan:** Semantic Gap ở Mục 5.3 xảy ra khi sản phẩm nhìn giống nhưng khác model, size hoặc compatibility. Context-Query Gap ở Mục 5.4 xảy ra vì ảnh query không luôn nói rõ ràng buộc người dùng cần.
 
 **Cách làm:** chỉ khi query có text hoặc bảng thuộc tính đáng tin cậy, hệ thống kiểm tra metadata của candidate trong Top-N sau exact re-ranking. Candidate khớp model, size hoặc compatibility được ưu tiên cao hơn; màu sắc/texture chỉ là thuộc tính phụ.
 
-**Challenge được giải quyết:** semantic gap và nhiễu metadata ở Mục 5.3–5.4. Visual similarity không đủ để kiểm tra các ràng buộc như đúng model máy, kích thước hoặc compatibility.
+**Mục đích:** tránh kết quả “nhìn giống nhưng dùng sai”, ví dụ ốp iPhone 14 được xếp trên ốp iPhone 15 khi query ghi rõ “iPhone 14”.
 
-**Mục đích:** giảm semantic gap và tránh kết quả “nhìn giống nhưng dùng sai”. Metadata chỉ được dùng để điều chỉnh thứ tự trong Top-N, không thay thế score embedding.
-
-**Giới hạn:** không lấy metadata của Top-1 làm nhãn cho query. Nếu Top-1 sai, cách này sẽ khuếch đại lỗi. Khi query chỉ có ảnh, hệ thống dừng ở exact re-ranking.
+**Giới hạn:** không lấy metadata của Top-1 làm nhãn cho query vì Top-1 sai sẽ khuếch đại lỗi. Khi query chỉ có ảnh, hoặc metadata không tin cậy, hệ thống chỉ dùng exact re-ranking ở Mục 8.2.
 
 **Đánh giá:** đo Precision@K trên tập query có text/table và kiểm tra rằng metric chung không giảm.
 
-## 8.4. Thứ tự triển khai
+## 8.4. Phần còn lại của Mục 05 được xử lý như thế nào?
+
+- **Sensory Gap (Mục 5.2):** SCALE dùng image regions và catalog có nhiều view, nhưng proposal không thêm cải tiến riêng cho ảnh query nhiễu. Chất lượng được kiểm tra bằng noise slice trong evaluation.
+- **Model Gap (Mục 5.5):** M5Product có 6.232 category giúp mở rộng kiến thức model. Gap này không thể loại bỏ bằng re-ranking; cần báo cáo metric và failure case theo category, đặc biệt long-tail/out-of-distribution.
+- **Metadata noise (Mục 5.4):** attribute-aware re-ranking chỉ chạy khi metadata query đáng tin cậy; metadata nhiễu vẫn được coi là failure case, không được tự động tin tưởng.
+
+## 8.5. Thứ tự triển khai
 
 1. Chạy baseline SCALE + `IndexFlatIP` + HNSW.
 2. Thêm exact re-ranking và chọn `N`, `efSearch` theo validation set.
 3. Chỉ bật attribute-aware re-ranking cho query có text/table đủ tin cậy.
+4. Báo cáo riêng hiệu quả theo gap: noise slice, category slice, query có/không có context và ANN recall loss.
 
 Hai cải tiến chỉ được giữ khi metric tốt hơn baseline tương ứng và latency vẫn đáp ứng yêu cầu demo.
