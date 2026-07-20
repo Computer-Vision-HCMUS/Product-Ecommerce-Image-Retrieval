@@ -10,11 +10,13 @@ SECTION_FILES = [
     "02_Product_Ecommerce.md",
     "03_Datasets.md",
     "04_Problem_Statement.md",
-    "05_Related_Works.md",
-    "06_Methodology.md",
-    "07_Expected_Result.md",
-    "08_Execution_Plan.md",
-    "09_Appendix_and_Reference.md",
+    "05_Implementation_Challenges.md",
+    "06_Related_Works.md",
+    "07_Methodology.md",
+    "08_Improvements.md",
+    "09_Expected_Result.md",
+    "10_Execution_Plan.md",
+    "11_Appendix_and_Reference.md",
 ]
 
 

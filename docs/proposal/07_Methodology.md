@@ -1,11 +1,11 @@
-# 06. Methodology
+# 07. Methodology
 
-## 6.1. Mục tiêu kỹ thuật
+## 7.1. Mục tiêu kỹ thuật
 
 Phương pháp đề xuất gồm hai khối lớn:
 
 1. **SCALE feature extractor**: biến dữ liệu sản phẩm đa phương thức thành vector embedding chung.
-2. **Faiss-based retrieval index**: lưu và tìm kiếm các embedding đó để trả về top-K sản phẩm gần query nhất. Trong đó FlatL2/FlatIP là exact baseline, Faiss HNSW là index chính, Faiss IVF-PQ/OPQ-PQ là phương án khi cần nén, và ScaNN là optional benchmark.
+2. **Faiss-based retrieval index**: lưu và tìm kiếm các embedding đó để trả về top-K product entry gần query nhất. `IndexFlatIP` là exact baseline trên vector đã chuẩn hóa, Faiss HNSW là index chính, còn IVF-PQ/OPQ-PQ là phương án nén khi cần.
 
 Nói ngắn gọn: SCALE trả lời câu hỏi "query và sản phẩm có giống nhau không?", còn retrieval index trả lời câu hỏi "làm sao tìm nhanh sản phẩm giống nhất trong hàng triệu sản phẩm?".
 
@@ -18,7 +18,7 @@ flowchart LR
         PE --> IDX["Build Faiss HNSW / IVF-PQ Index"]
     end
     subgraph Online["Online Query Pipeline"]
-        Q["Query<br/>Image/Text/Video/Audio/Table"] --> QP["Preprocess"]
+        Q["Query<br/>Image + optional text/table"] --> QP["Preprocess"]
         QP --> QF["SCALE Query Encoder"]
         QF --> QE["Query Embedding"]
         QE --> IDX
@@ -26,7 +26,7 @@ flowchart LR
     end
 ```
 
-## 6.2. Một khái niệm nền: token, feature và embedding
+## 7.2. Một khái niệm nền: token, feature và embedding
 
 Trước khi đi vào từng modality, cần phân biệt ba khái niệm:
 
@@ -36,7 +36,7 @@ Trước khi đi vào từng modality, cần phân biệt ba khái niệm:
 
 Ví dụ với text `"white leather sneakers"`, tokenizer có thể tách thành các token như `[CLS]`, `white`, `leather`, `sneakers`, `[SEP]`; mỗi token được biến thành một vector 768 chiều. Với image, "token" không phải là word mà là region feature: vùng giày, vùng logo, vùng đế giày, vùng texture, v.v.
 
-## 6.3. Tổng quan kiến trúc SCALE
+## 7.3. Tổng quan kiến trúc SCALE
 
 SCALE trong paper M5Product là một kiến trúc multi-modal pretraining gồm:
 
@@ -71,9 +71,9 @@ Theo paper M5Product/SCALE:
 - Audio dùng MFCC.
 - Missing modality được xử lý bằng zero imputation.
 
-## 6.4. Image branch: Image Regions -> Image Transformer
+## 7.4. Image branch: Image Regions -> Image Transformer
 
-### 6.4.1. Image branch là gì?
+### 7.4.1. Image branch là gì?
 
 Image branch là nhánh biến ảnh sản phẩm thành một sequence các vector mô tả những vùng quan trọng trong ảnh. Thay vì đưa toàn bộ ảnh vào transformer như một ma trận pixel, SCALE dùng object/region features.
 
@@ -87,13 +87,13 @@ Ví dụ ảnh một đôi giày:
 
 Mỗi region được biểu diễn bằng một vector. Sequence các vector này là input cho Image Transformer.
 
-### 6.4.2. Vì sao dùng region feature thay vì toàn ảnh?
+### 7.4.2. Vì sao dùng region feature thay vì toàn ảnh?
 
 Trong e-commerce, background, model, ánh sáng và layout ảnh có thể thay đổi mạnh. Nếu dùng toàn ảnh, model dễ học nhầm background hoặc style chụp. Region feature giúp model tập trung vào object chính và các bộ phận sản phẩm.
 
 Paper SCALE dùng hướng **bottom-up attention**: object detector đề xuất các vùng ảnh quan trọng trước, sau đó transformer học quan hệ giữa các vùng đó.
 
-### 6.4.3. Input và output
+### 7.4.3. Input và output
 
 | Thành phần | Mô tả |
 | --- | --- |
@@ -102,7 +102,7 @@ Paper SCALE dùng hướng **bottom-up attention**: object detector đề xuất
 | Region feature | Vector cho mỗi vùng, ví dụ `N x d`. |
 | Image transformer output | Sequence token ảnh đã được contextualize, ví dụ `N x 768`. |
 
-### 6.4.4. Tool đề xuất
+### 7.4.4. Tool đề xuất
 
 | Tool | Nguồn | Vai trò |
 | --- | --- | --- |
@@ -112,22 +112,9 @@ Paper SCALE dùng hướng **bottom-up attention**: object detector đề xuất
 
 Nếu dùng đúng tinh thần paper, lựa chọn tốt nhất là `py-bottom-up-attention`. Nếu môi trường khó cài, có thể dùng `torchvision` Faster R-CNN để lấy bounding boxes, sau đó lấy feature từ backbone hoặc ROI pooled features. Đây là thay thế thực dụng, cần ghi rõ trong báo cáo là implementation approximation.
 
-### 6.4.5. Thiết kế thêm của nhóm
+## 7.5. Text branch: Text Tokens -> Text Transformer
 
-Paper nói image region extraction nhưng không mô tả chi tiết augmentation cho query thực tế. Chúng tôi bổ sung augmentation dựa trên Shopsy:
-
-- JPEG compression.
-- Random crop.
-- Rotation nhẹ.
-- Horizontal flip.
-- Logo/watermark overlay.
-- Resize quality degradation.
-
-Mục tiêu là giảm **sensory gap** giữa ảnh catalog đẹp và ảnh query ngoài đời.
-
-## 6.5. Text branch: Text Tokens -> Text Transformer
-
-### 6.5.1. Text branch là gì?
+### 7.5.1. Text branch là gì?
 
 Text branch biến title/caption/description thành token vectors. Ví dụ:
 
@@ -138,11 +125,11 @@ Tokens: [CLS], bubble, matt, blind, box, storage, ladder, [SEP]
 
 Mỗi token được ánh xạ thành vector thông qua embedding layer của BERT, sau đó đi qua Text Transformer để học ngữ cảnh.
 
-### 6.5.2. BERT init nghĩa là gì?
+### 7.5.2. BERT init nghĩa là gì?
 
 SCALE không train text transformer từ con số 0. Paper dùng BERT để khởi tạo text transformer. BERT là encoder-only transformer đã học ngôn ngữ bằng masked language modeling. Vì vậy, ngay từ đầu model đã biết một phần quan hệ giữa các từ, ví dụ `leather`, `shoe`, `sneaker`, `white`, `size`.
 
-### 6.5.3. Input và output
+### 7.5.3. Input và output
 
 | Thành phần | Mô tả |
 | --- | --- |
@@ -151,7 +138,7 @@ SCALE không train text transformer từ con số 0. Paper dùng BERT để kh�
 | Text transformer output | Sequence token text, ví dụ `L_text x 768`. |
 | Vai trò | Bổ sung category, function, material, selling point mà ảnh không thể hiện rõ. |
 
-### 6.5.4. Tool đề xuất
+### 7.5.4. Tool đề xuất
 
 | Tool | Nguồn | Vai trò |
 | --- | --- | --- |
@@ -165,11 +152,9 @@ tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
 text_encoder = AutoModel.from_pretrained("bert-base-uncased")
 ```
 
-Nếu dữ liệu có tiếng Việt hoặc đa ngôn ngữ, có thể đổi sang `bert-base-multilingual-cased` hoặc PhoBERT. Đây là thiết kế thêm của nhóm nếu dataset/query tiếng Việt xuất hiện trong demo.
+## 7.6. Table branch: Table Entities -> Table Transformer
 
-## 6.6. Table branch: Table Entities -> Table Transformer
-
-### 6.6.1. Table entities là gì?
+### 7.6.1. Table entities là gì?
 
 Table trong e-commerce là thông tin có cấu trúc dạng key-value. Ví dụ:
 
@@ -183,28 +168,15 @@ Table trong e-commerce là thông tin có cấu trúc dạng key-value. Ví dụ
 
 Một **table entity** là một đơn vị thuộc tính có nghĩa, thường là cặp `key: value`. Ví dụ `Material: Wood` là một entity, `Color: White` là một entity. Nó khác text bình thường vì key cho biết vai trò của value.
 
-### 6.6.2. Vì sao không chỉ nối table thành text?
+### 7.6.2. Vì sao không chỉ nối table thành text?
 
 Nếu nối mọi thứ thành câu text, model có thể mất cấu trúc key-value. Ví dụ `white` trong `Color: White` khác với `Brand: White Label`. Table Transformer giúp model học rằng `Color`, `Brand`, `Material`, `Size`, `Applicable Scene` là các loại thuộc tính khác nhau.
 
-### 6.6.3. Cách biểu diễn table entity
+### 7.6.3. Cách biểu diễn table entity
 
-Paper SCALE nói table encoder là transformer riêng và dùng **Mask Entity Modeling (MEM)**. Paper không đưa đầy đủ code encoding table entity trong phần chính, nên chúng tôi đề xuất một serialization rõ ràng như sau:
+Paper SCALE dùng table transformer riêng và **Mask Entity Modeling (MEM)**, nhưng không công bố chi tiết serialization table trong phần chính. Chi tiết encoding table sẽ được quyết định khi hiện thực và ghi riêng trong báo cáo thực nghiệm; nó không được xem là một thành phần đã xác định của SCALE gốc.
 
-```text
-[ENT] key = material [VAL] wood [SEP]
-[ENT] key = color [VAL] white [SEP]
-[ENT] key = brand [VAL] tang craftsman [SEP]
-```
-
-Đây là **thiết kế thêm của nhóm**, không phải tool có sẵn từ paper. Lý do thiết kế:
-
-- Giữ được ranh giới từng entity.
-- Giữ được phân biệt key và value.
-- Cho phép mask nguyên entity trong MEM.
-- Dễ implement bằng tokenizer BERT hoặc tokenizer riêng.
-
-### 6.6.4. Input và output
+### 7.6.4. Input và output
 
 | Thành phần | Mô tả |
 | --- | --- |
@@ -213,7 +185,7 @@ Paper SCALE nói table encoder là transformer riêng và dùng **Mask Entity Mo
 | Table transformer output | Sequence token/entity table, ví dụ `L_table x 768`. |
 | Vai trò | Bổ sung fine-grained attributes như brand, material, color, size. |
 
-### 6.6.5. Tool đề xuất
+### 7.6.5. Tool đề xuất
 
 | Tool | Nguồn | Vai trò |
 | --- | --- | --- |
@@ -221,7 +193,7 @@ Paper SCALE nói table encoder là transformer riêng và dùng **Mask Entity Mo
 | Python `json` | Standard library. | Parse product attribute JSON. |
 | Hugging Face tokenizer | Tool ngoài. | Tokenize chuỗi entity serialization. |
 
-### 6.6.6. Mask Entity Modeling
+### 7.6.6. Mask Entity Modeling
 
 Với MLM, ta mask token lẻ. Với MEM, ta mask cả entity:
 
@@ -233,9 +205,9 @@ Target: material = wood
 
 Việc mask nguyên entity buộc model dùng image/text/video/audio còn lại để suy luận thuộc tính bị thiếu. Ví dụ nhìn ảnh ghế gỗ và title "wooden chair", model có thể dự đoán `Material: Wood`.
 
-## 6.7. Video branch: Video Frames -> Video Transformer
+## 7.7. Video branch: Video Frames -> Video Transformer
 
-### 6.7.1. Video branch là gì?
+### 7.7.1. Video branch là gì?
 
 Video branch biến video sản phẩm thành chuỗi frame features. Một video có nhiều frame, nhưng không thể đưa toàn bộ frame vào model vì quá nặng. Ta sample một số frame đại diện, ví dụ 8 hoặc 16 frame theo thời gian.
 
@@ -249,7 +221,7 @@ Ví dụ video quay túi xách:
 
 Những frame này giúp model hiểu sản phẩm ở nhiều góc nhìn.
 
-### 6.7.2. Input và output
+### 7.7.2. Input và output
 
 | Thành phần | Mô tả |
 | --- | --- |
@@ -258,7 +230,7 @@ Những frame này giúp model hiểu sản phẩm ở nhiều góc nhìn.
 | Frame feature | Vector cho từng frame hoặc region trong frame. |
 | Video transformer output | Sequence video tokens, ví dụ `T x 768`. |
 
-### 6.7.3. Tool đề xuất
+### 7.7.3. Tool đề xuất
 
 | Tool | Nguồn | Vai trò |
 | --- | --- | --- |
@@ -267,19 +239,9 @@ Những frame này giúp model hiểu sản phẩm ở nhiều góc nhìn.
 | `decord` | Tool ngoài. | Efficient video loading cho deep learning. |
 | `torchvision.io` | Tool ngoài. | Đọc video cơ bản trong PyTorch ecosystem. |
 
-### 6.7.4. Thiết kế thêm của nhóm
+## 7.8. Audio branch: Audio MFCC -> Audio Transformer
 
-Paper nói "ordinal frames sampled from video are fed into video encoder" nhưng không chốt sampling policy. Chúng tôi đề xuất:
-
-- **Uniform sampling**: lấy `T` frame cách đều toàn video, đơn giản và ổn định.
-- **Middle-biased sampling**: lấy nhiều frame ở giữa video nếu video đầu/cuối có intro/outro.
-- **Object-aware sampling**: nếu có detector, ưu tiên frame có object confidence cao.
-
-Giai đoạn đầu nên dùng uniform sampling vì dễ tái lập. Object-aware sampling là hướng nâng cấp nếu video noisy.
-
-## 6.8. Audio branch: Audio MFCC -> Audio Transformer
-
-### 6.8.1. Audio branch là gì?
+### 7.8.1. Audio branch là gì?
 
 Audio branch biến tín hiệu âm thanh thành chuỗi feature theo thời gian. Trong SCALE, audio được biểu diễn bằng **MFCC - Mel-Frequency Cepstral Coefficients**.
 
@@ -291,16 +253,15 @@ MFCC là cách nén phổ âm thanh theo thang Mel, gần với cách tai ngư�
 4. Lấy log năng lượng.
 5. Dùng DCT để tạo cepstral coefficients.
 
-### 6.8.2. Audio giúp gì cho product search?
+### 7.8.2. Audio giúp gì cho product search?
 
 Audio không phải modality mạnh nhất cho mọi sản phẩm, nhưng có thể hữu ích khi:
 
 - Video sản phẩm có lời giới thiệu.
-- Query là voice/audio.
 - Sản phẩm có âm thanh đặc trưng, ví dụ nhạc cụ, thiết bị điện, đồ chơi.
 - Audio transcript có thể bổ sung text signal.
 
-### 6.8.3. Input và output
+### 7.8.3. Input và output
 
 | Thành phần | Mô tả |
 | --- | --- |
@@ -309,7 +270,7 @@ Audio không phải modality mạnh nhất cho mọi sản phẩm, nhưng có th
 | Projection | Linear layer đưa MFCC về hidden size 768. |
 | Audio transformer output | Sequence audio tokens, ví dụ `L_audio x 768`. |
 
-### 6.8.4. Tool đề xuất
+### 7.8.4. Tool đề xuất
 
 | Tool | Nguồn | Vai trò |
 | --- | --- | --- |
@@ -317,9 +278,7 @@ Audio không phải modality mạnh nhất cho mọi sản phẩm, nhưng có th
 | `torchaudio.transforms.MFCC` | Tool ngoài, PyTorch ecosystem. | Tính MFCC trực tiếp bằng tensor pipeline. |
 | `ffmpeg` hoặc `PyAV` | Tool ngoài. | Tách audio track từ video. |
 
-Nếu audio là voice query, nhóm có thể thêm ASR để chuyển speech sang text rồi đưa vào Text Transformer. Đây là hướng mở rộng, không phải thành phần bắt buộc của SCALE gốc.
-
-## 6.9. Concatenate Tokens: nối các modality như thế nào?
+## 7.9. Concatenate Tokens: nối các modality như thế nào?
 
 Sau khi từng encoder tạo token sequence riêng, ta nối chúng thành một sequence chung:
 
@@ -339,9 +298,9 @@ Sau khi từng encoder tạo token sequence riêng, ta nối chúng thành một
 
 Đây là phần implementation cần làm rõ khi code. Nếu thiếu modality, ví dụ query chỉ có image, ta dùng mask để JCT không chú ý vào padding token của modality khác.
 
-## 6.10. Joint Co-Transformer (JCT)
+## 7.10. Joint Co-Transformer (JCT)
 
-### 6.10.1. JCT là gì?
+### 7.10.1. JCT là gì?
 
 JCT là transformer chung nhận sequence token đã nối từ nhiều modality. Nó dùng self-attention để mỗi token có thể "nhìn" các token khác, kể cả token từ modality khác.
 
@@ -352,7 +311,7 @@ Ví dụ:
 - Token video frame cận cảnh logo có thể chú ý tới text brand.
 - Token audio từ lời giới thiệu có thể chú ý tới table attribute.
 
-### 6.10.2. Vì sao JCT quan trọng?
+### 7.10.2. Vì sao JCT quan trọng?
 
 Nếu chỉ encode từng modality riêng rồi average, model khó học quan hệ chi tiết giữa chúng. JCT cho phép cross-modal reasoning:
 
@@ -361,9 +320,9 @@ Nếu chỉ encode từng modality riêng rồi average, model khó học quan h
 - Video bổ sung góc nhìn ảnh không có.
 - Audio/voice bổ sung intent hoặc selling point.
 
-JCT là nơi semantic gap và modal gap được giảm mạnh nhất.
+JCT là nơi semantic gap và việc liên kết thông tin đa phương thức được cải thiện mạnh nhất.
 
-### 6.10.3. Self-attention trong JCT hoạt động thế nào?
+### 7.10.3. Self-attention trong JCT hoạt động thế nào?
 
 Với mỗi token, transformer tạo ba vector `Q`, `K`, `V`:
 
@@ -385,19 +344,11 @@ flowchart TD
     POOL --> EMB["Unified Embedding"]
 ```
 
-### 6.10.4. Output của JCT lấy embedding như thế nào?
+### 7.10.4. Output của JCT lấy embedding như thế nào?
 
-Có ba cách phổ biến:
+Paper sử dụng fused modality features từ JCT cho downstream task nhưng không quy định một pooling rule duy nhất trong phần chính. Pooling rule được chọn cho pipeline retrieval cần được ghi rõ và kiểm chứng bằng ablation.
 
-| Cách pooling | Mô tả | Ghi chú |
-| --- | --- | --- |
-| Global `[CLS]` token | Thêm một token đại diện toàn sample, lấy output token này. | Dễ dùng cho retrieval. |
-| Mean pooling | Trung bình các token hợp lệ sau JCT. | Ổn nếu sequence không có CLS tốt. |
-| Modality-aware pooling | Pool từng modality rồi học trọng số fusion. | Phù hợp nếu muốn giải thích modality contribution. |
-
-Paper nói dùng fused modality features từ JCT. Trong implementation của nhóm, đề xuất dùng global `[CLS]` hoặc mean pooling ở bản đầu, sau đó thử modality-aware pooling nếu cần explainability.
-
-## 6.11. Self-supervised masked tasks
+## 7.11. Self-supervised masked tasks
 
 SCALE dùng các pretext tasks để model học đặc trưng hữu ích ngay cả khi không có label thủ công.
 
@@ -411,7 +362,7 @@ SCALE dùng các pretext tasks để model học đặc trưng hữu ích ngay c
 
 Paper mask 15% input. Với table, mask nguyên entity giúp model học tốt hơn so với mask từng word rời rạc.
 
-## 6.12. Self-harmonized Inter-Modality Contrastive Learning (SIMCL)
+## 7.12. Self-harmonized Inter-Modality Contrastive Learning (SIMCL)
 
 Nếu chỉ có hai modality image-text, ta có thể dùng contrastive learning: image và text của cùng sản phẩm là positive pair, image và text của sản phẩm khác là negative pair. Nhưng với 5 modality, có nhiều cặp: image-text, image-table, image-video, text-table, video-audio, v.v. Không phải cặp nào cũng quan trọng như nhau.
 
@@ -420,6 +371,8 @@ SIMCL học một **modality alignment score matrix** để tự cân bằng:
 - Cặp modality nào align tốt và nhiều thông tin hơn thì trọng số cao hơn.
 - Cặp modality nhiễu hoặc thiếu thông tin thì trọng số thấp hơn.
 - Masked task của từng modality cũng được cân bằng, tránh một modality lấn át toàn bộ training.
+
+Trong paper, alignment score matrix được học như tham số tự do; phần tam giác trên được dùng để weighting các inter-modality contrastive loss, còn phần đường chéo weighting intra-modality masked loss. Vì vậy SIMCL là cơ chế weighting loss, không phải bộ chọn modality động ở inference.
 
 ```mermaid
 flowchart TD
@@ -445,7 +398,7 @@ L_total = weighted_inter_modality_contrastive_loss
 
 Đây là lý do SCALE phù hợp hơn cách fusion đơn giản như concatenate rồi train classifier: nó không chỉ nối dữ liệu, mà còn học mức độ tin cậy/đóng góp giữa các modality.
 
-## 6.13. Embedding extraction
+## 7.13. Embedding extraction
 
 Sau khi train/finetune, ta dùng SCALE để tạo embedding:
 
@@ -472,61 +425,57 @@ Sau khi train/finetune, ta dùng SCALE để tạo embedding:
 
 L2-normalization giúp cosine similarity hoặc inner product ổn định hơn. Shopsy cũng dùng L2-normalization trước khi đưa embedding vào ANN.
 
-## 6.14. Retrieval index: Flat baseline, Faiss HNSW, IVF-PQ và ScaNN
+## 7.14. Retrieval index: Flat baseline, Faiss HNSW và IVF-PQ
 
-Khi xây dựng một hệ thống tìm kiếm ảnh sản phẩm ở quy mô thương mại điện tử, chúng ta phải đối mặt với thách thức lớn về mặt hiệu năng khi danh mục hàng hóa tăng dần lên đến hàng triệu phần tử. Nếu hệ thống vận hành theo cơ chế duyệt cạn (Exhaustive Search) tức là ép ảnh truy vấn phải đối chiếu trực tiếp với từng sản phẩm một trong cơ sở dữ liệu sẽ làm tăng tuyến tính độ trễ truy vấn theo kích thước dữ liệu, đồng thời làm giảm số lượng truy vấn xử lý được trong mỗi giây khiến người dùng phải chờ đợi lâu.
+Tầng retrieval nhận embedding của ảnh query và tìm top-K embedding gần nhất trong gallery product entry. Embedding gallery được tạo offline, lưu cùng `product_id`, ảnh đại diện và metadata; khi truy vấn, hệ thống chỉ tính embedding query rồi gọi index. Thiết kế này tách chi phí feature extraction khỏi latency của retrieval.
 
-Để giải quyết vấn đề này, tầng truy hồi Retrieval Layer cần sử dụng các kỹ thuật tìm kiếm lân cận gần đúng ANN (Approximate Nearest Neighbor). Nhằm đảm bảo tính thực tế, thay vì chỉ gọi tên các giải pháp ANN một cách chung chung, hệ thống sẽ xây dựng một chiến lược cấu trúc tầng index cụ thể và phân chia rõ ràng giữa việc đo lường kiểm thử và khả năng mở rộng quy mô dữ liệu sau này.
+### 7.14.1. Chuẩn hóa vector và exact baseline
 
-Hệ thống truy hồi vận hành dựa trên sự phối hợp giữa các giải pháp cấu trúc dữ liệu, trong đó mỗi thành phần đảm nhận một vai trò cụ thể:
+Trước khi index, query embedding và gallery embedding đều được L2-normalize. Retrieval chính dùng inner product, vì với vector đã chuẩn hóa thứ hạng theo inner product tương đương cosine similarity. `IndexFlatIP` duyệt toàn bộ gallery nên là exact baseline: top-K của nó được đối chiếu với nhãn đánh giá để đo chất lượng representation, đồng thời làm mốc tính recall loss của index ANN. `IndexFlatL2` chỉ dùng để kiểm tra tính nhất quán của metric khi cần, không phải một index triển khai riêng.
 
-**FlatL2 / FlatIP (Exact Baseline):** Hệ thống thực hiện chuẩn hóa vector (L2 Normalization) rồi tính toán khoảng cách Euclidean hoặc tích vô hướng để tìm ra Ground Truth. Bước này giúp đánh giá chính xác năng lực trích xuất đặc trưng của mô hình SCALE mà không bị nhiễu bởi các sai số, từ đó đo lường được các thuật toán gần đúng phía sau đã đánh đổi bao nhiêu % độ chính xác (Recall/Precision loss) để lấy tốc độ.
+### 7.14.2. Faiss HNSW: index chính
 
-**Faiss HNSW (Index mặc định cho Prototype/Demo):** Thuật toán này tổ chức không gian vector thành một cấu trúc đồ thị đa tầng để tối ưu quỹ đạo tìm kiếm. Hệ thống ưu tiên lựa chọn HNSW làm index mặc định trong giai đoạn đầu vì thuật toán đáp ứng các chỉ số về độ phủ và độ trễ, đồng thời không yêu cầu bước huấn luyện index, giúp luồng cập nhật dữ liệu trở nên đơn giản hơn. Các tầng đồ thị phía trên giữ mật độ liên kết thưa thớt để định hướng nhanh vùng không gian, trong khi tầng đáy chứa toàn bộ dữ liệu để thu hẹp phạm vi tìm kiếm cục bộ. Nhờ đặc tính không cần training, hệ thống có thể chèn trực tiếp vector mới vào đồ thị theo thời gian thực mà không cần xây dựng lại toàn bộ cấu trúc index từ đầu.
+Prototype sử dụng `IndexHNSWFlat` với inner product trên embedding đã chuẩn hóa. HNSW không cần train index; mỗi embedding mới có thể được thêm cùng `product_id` qua lớp mapping ID. Ba tham số được tune trên validation set:
 
-**Faiss IVF-PQ / OPQ-PQ (Phương án mở rộng quy mô):** Khi dung lượng dữ liệu lớn và bộ nhớ RAM trở thành bottleneck, hệ thống sẽ kích hoạt giải pháp này. Bằng cách kết hợp danh mục đảo IVF để phân cụm không gian và lượng tử hóa sản phẩm (OPQ/PQ), thuật toán tiến hành chia nhỏ vector và nén thành các mã định danh ngắn, giúp tối ưu dung lượng lưu trữ bộ nhớ. Khi truy vấn, hệ thống tính toán khoảng cách trực tiếp trên các mã định danh đã nén thông qua bảng tra cứu mà không cần giải nén.
+- `M`: số liên kết của mỗi node, ảnh hưởng memory và recall.
+- `efConstruction`: độ rộng tìm kiếm khi xây graph, ảnh hưởng build time và chất lượng graph.
+- `efSearch`: độ rộng tìm kiếm khi query, là núm điều chỉnh chính cho trade-off latency–recall.
 
-**ScaNN (Optional Benchmark):** Giải pháp này từ Google thực hiện tìm kiếm tương đồng thông qua cơ chế lượng tử hóa vector bất đẳng hướng (Anisotropic Vector Quantization). Hệ thống thiết lập ScaNN như một module độc lập không bắt buộc nhằm mục đích thử nghiệm và kiểm chứng khả năng tối ưu QPS trên hạ tầng CPU, dựa trên kết quả thực nghiệm từ kiến trúc hệ thống Shopsy của Flipkart.
+HNSW phù hợp cho demo vì pipeline add vector đơn giản và latency thấp. Tuy nhiên, record bị xóa hoặc thay ảnh không nên chỉnh trực tiếp trong graph: hệ thống đánh dấu `product_id` không còn hiệu lực ở metadata mapping, lọc kết quả trước khi trả về, và rebuild index theo batch khi lượng thay đổi tích lũy vượt ngưỡng đã đặt.
 
-**Các giải pháp bổ trợ (Annoy, Qdrant/Milvus):** Hệ thống có thể ứng dụng Annoy để thử nghiệm nhanh ở quy mô nhỏ dựa trên cấu trúc cây phân tách không gian. Đối với Qdrant hoặc Milvus, các công cụ này sẽ được cân nhắc nếu hệ thống cần tích hợp các dịch vụ hoàn chỉnh có sẵn API và bộ lọc metadata ở cấp độ production, dù không nằm trong trọng tâm tối ưu hóa thuật toán.
+### 7.14.3. IVF-PQ/OPQ-PQ: phương án nén
 
+Khi memory của HNSW không còn phù hợp với kích thước gallery, hệ thống chuyển sang IVF-PQ. IVF phân cụm embedding thành `nlist` cell; khi query chỉ duyệt `nprobe` cell gần nhất. PQ nén mỗi vector thành mã PQ, còn OPQ là phép xoay không gian tùy chọn trước PQ để giảm sai số lượng tử hóa.
 
-|Index|Ưu điểm|Nhược điểm|Khi dùng|
-|-|-|-|-|
-|FlatL2 / FlatIP|Phản ánh đúng khoảng cách toán học thực tế trong không gian không nén, làm mốc chuẩn Exact Baseline để kiểm thử sai số.|Tốc độ xử lý (QPS) giảm tuyến tính khi kích thước danh mục tăng lớn, tiêu tốn nhiều tài nguyên tính toán.|Đánh giá năng lực biểu diễn của không gian embedding do mô hình SCALE tạo ra và đo lường tỷ lệ hao hụt độ chính xác của các thuật toán ANN.|
-|Faiss HNSW|Đạt chỉ số độ phủ cao trên các tập dữ liệu thử nghiệm, không yêu cầu bước huấn luyện index, hỗ trợ triển khai nhanh.|Tốn RAM, cần tune `M`, `efSearch`, `efConstruction`; không tối ưu khi cần xóa vector thường xuyên.|Cấu hình làm index chính cho hệ thống chạy thử nghiệm Prototype/Demo và các bài kiểm tra hiệu năng ban đầu.|
-|Faiss IVF-PQ / OPQ-PQ|Giảm dung lượng bộ nhớ RAM bằng cơ chế nén vector, hỗ trợ mở rộng quy mô khi số lượng phần tử tăng lên.|Bắt buộc phải thực hiện bước huấn luyện trên tập dữ liệu mẫu, có thể giảm một phần precision, cần tune `nlist`, `nprobe`, PQ code size.|Sử dụng khi bộ nhớ vật lý chạm ngưỡng giới hạn bottleneck hoặc khi kích thước danh mục sản phẩm tăng lớn lên quy mô hàng triệu phần tử.|
-|ScaNN|Tối ưu vector similarity search bằng pruning/quantization, đạt chỉ số QPS cao trên hạ tầng CPU.|Quy trình thiết lập môi trường phức tạp, phụ thuộc chặt chẽ vào hệ điều hành và phiên bản thư viện hỗ trợ. Không bắt buộc phải là một dependency cốt lõi của hệ thống.|Sử dụng làm Optional benchmark để thu thập và đối chiếu số liệu hiệu năng với cấu trúc đồ thị của Faiss HNSW.|
-|Annoy|Cấu trúc dữ liệu dựa trên cây chia không gian đơn giản, dễ cài đặt, thời gian nạp index vào bộ nhớ nhanh.|Thời gian xây dựng index (Build time) dài; tốc độ tìm kiếm và độ chính xác bị giới hạn so với HNSW hoặc ScaNN khi kích thước dữ liệu tăng lên.|Phục vụ quá trình hiện thực hóa luồng xử lý cơ bản hoặc xây dựng prototype nhanh ở giai đoạn đầu.|
+IVF-PQ phải được train trên một mẫu gallery đại diện trước khi add toàn bộ vector. Các tham số `nlist`, `nprobe`, số subquantizer `m` và số bit mỗi mã được chọn bằng validation benchmark; cấu hình được chấp nhận khi đạt memory budget và recall loss so với `IndexFlatIP` phù hợp với mục tiêu demo. IVF-PQ không thay thế HNSW trong bản đầu, mà là phương án scale khi benchmark cho thấy HNSW vượt memory budget.
 
-Dựa trên kết quả thực nghiệm từ kiến trúc hệ thống Shopsy của Flipkart với quy mô 3 triệu ảnh sản phẩm, các giải pháp lượng tử hóa và đồ thị như ScaNN và HNSW đạt chỉ số Precision@4 tương đương với FlatL2 nhưng mang lại tốc độ QPS cao hơn nhiều lần. Thống nhất lộ trình triển khai thực nghiệm tầng truy hồi theo thứ tự ưu tiên như sau:
+### 7.14.4. Quy trình benchmark và cập nhật index
 
-- **FlatL2 / FlatIP**: Làm exact baseline để xác định trần chất lượng tối đa của không gian embedding do mô hình SCALE tạo ra.
-- **Faiss HNSW**: Làm retrieval index mặc định cho hệ thống tìm kiếm thời gian thực để chứng minh hiệu năng về latency và recall trên môi trường demo.
-- **Faiss IVF-PQ / OPQ-PQ**: Tiến hành huấn luyện và cấu hình song song để làm phương án dự phòng tối ưu tài nguyên bộ nhớ khi catalog tăng trưởng.
-- **ScaNN**: Triển khai làm module đối soát độc lập để thu thập và so sánh số liệu hiệu năng với Faiss HNSW trên cùng một cấu hình CPU nếu môi trường hỗ trợ tốt.
+Mỗi cấu hình chạy trên cùng gallery, cùng embedding, cùng hardware và cùng tập query. Báo cáo gồm Recall@K so với `IndexFlatIP`, query latency, QPS, build time và memory footprint. Với catalog update, embedding mới được tạo offline; HNSW add tăng dần, còn IVF-PQ add sau khi index đã train. Mỗi lần rebuild phải tạo version mới của index và metadata mapping, kiểm tra trên validation set rồi mới thay thế version đang phục vụ.
 
-## 6.15. Index building pipeline
+| Thành phần | Vai trò trong hệ thống | Điều kiện sử dụng |
+| --- | --- | --- |
+| `IndexFlatIP` | Exact baseline trên vector L2-normalize. | Luôn chạy trên subset/benchmark để đo representation quality và recall loss. |
+| `IndexHNSWFlat` | Index ANN mặc định cho demo. | Dùng khi memory đáp ứng và cần latency thấp. |
+| IVF-PQ/OPQ-PQ | Index ANN nén. | Dùng khi benchmark cho thấy HNSW vượt memory budget. |
+
+## 7.15. Index building pipeline
 
 ```mermaid
 flowchart TD
     C["Catalog Products"] --> E["SCALE Embedding Extraction"]
     E --> N["L2 Normalize"]
-    N --> P["Optional PCA<br/>only if memory/latency requires it"]
-    P --> B["Build Faiss HNSW / IVF-PQ Index"]
-    B --> V["Validate Recall/Precision vs FlatL2/FlatIP"]
+    N --> B["Build Faiss HNSW / IVF-PQ Index"]
+    B --> V["Validate Recall/Precision vs IndexFlatIP"]
     V --> S["Save Index + Metadata Mapping"]
 ```
 
-Nếu embedding dimension lớn và index memory cao, có thể áp dụng PCA giống Shopsy. Với SCALE hidden size 768, PCA cần được kiểm tra thực nghiệm: chỉ giữ nếu giảm memory/latency mà không làm mất nhiều Precision@K.
-
-## 6.16. Training workflow
+## 7.16. Training workflow
 
 ```mermaid
 flowchart TD
     D["M5Product Training Split"] --> A["Data Loader<br/>5 modalities + missing masks"]
-    A --> AUG["Image/Query Augmentation"]
-    AUG --> ENC["Modality Encoders"]
+    A --> ENC["Modality Encoders"]
     ENC --> CAT["Concatenate Tokens"]
     CAT --> JCT["Joint Co-Transformer"]
     JCT --> MT["Masked Tasks"]
@@ -544,7 +493,9 @@ Training chia thành:
 - **Finetuning**: dùng subset retrieval/classification nếu có label category/instance.
 - **Embedding export**: freeze model tốt nhất và export gallery/query embedding.
 
-## 6.17. Testing and evaluation workflow
+Để tái lập paper, cấu hình tham chiếu là batch size 64, 5 epochs, Adam với warm-up learning rate `1e-4`; chỉ thay đổi khi giới hạn GPU hoặc subset dữ liệu buộc phải điều chỉnh. Mọi thay đổi cấu hình của nhóm phải được ghi riêng trong thực nghiệm.
+
+## 7.17. Testing and evaluation workflow
 
 ```mermaid
 flowchart TD
@@ -560,7 +511,7 @@ flowchart TD
 
 Model quality được đo bằng retrieval metrics. System quality được đo bằng latency, QPS, memory footprint và index build/update time.
 
-## 6.18. Serving design
+## 7.18. Serving design
 
 Online serving gồm:
 
@@ -588,16 +539,31 @@ sequenceDiagram
     API-->>U: Ranked product images
 ```
 
-## 6.19. Rủi ro và hướng xử lý
+## 7.19. Rủi ro và hướng xử lý
 
 | Rủi ro | Nguyên nhân | Hướng xử lý |
 | --- | --- | --- |
-| Query chỉ có image nhưng model train nhiều modality | Modal mismatch giữa train và serve. | Missing modality mask/zero imputation, train với random modality dropout. |
+| Query chỉ có image nhưng model train nhiều modality | Modal mismatch giữa train và serve. | Missing modality mask/zero imputation theo SCALE. |
 | Semantic sai dù ảnh giống | Embedding quá thiên về texture. | Tăng trọng số text/table, finetune bằng category/instance labels. |
-| Approximate index giảm recall | Approximation/quantization quá mạnh. | So sánh với FlatL2/FlatIP, tune Faiss HNSW hoặc IVF-PQ, dùng rerank top-N bằng exact distance. |
+| Approximate index giảm recall | Approximation/quantization quá mạnh. | So sánh với `IndexFlatIP`, tune Faiss HNSW hoặc IVF-PQ, dùng rerank top-N bằng exact distance. |
 | Latency cao | SCALE inference nặng. | Cache embedding, batch offline, dùng model distillation/ONNX/TensorRT nếu cần. |
 | Catalog update | Product mới cần embedding và index update. | Incremental index hoặc rebuild định kỳ theo batch. |
 
-## 6.20. Summary
+## 7.20. Phương pháp giải quyết các thách thức thực hiện
+
+Methodology được thiết kế để xử lý trực tiếp các gap ở Mục 02 và các thách thức thực hiện ở Mục 05, thay vì chỉ tối ưu similarity giữa hai ảnh. Mỗi thành phần giải quyết một phần rủi ro; vì vậy, hiệu quả cuối cùng cần được đánh giá đồng thời theo representation quality, retrieval quality và system quality.
+
+| Thách thức | Thành phần xử lý chính | Cơ chế và giới hạn |
+| --- | --- | --- |
+| Domain gap giữa query và catalog | Image preprocessing, region features và multi-view video | Region feature và nhiều view giảm ảnh hưởng của background. Hiệu quả vẫn phụ thuộc chất lượng ảnh query và độ đa dạng của catalog. |
+| Fine-grained attributes và crop query | Image regions, title/table encoder, JCT và rerank top-N | JCT liên kết chi tiết ảnh với brand, material, color hoặc size trong metadata. Với query quá nhỏ hoặc bị che khuất, hệ thống vẫn có thể cần object grounding chuyên biệt. |
+| Missing modality và metadata noise | Modality-specific encoder, attention mask, zero imputation và SIMCL | Query/candidate có modality thiếu vẫn có thể được encode; SIMCL điều chỉnh đóng góp giữa modality. Zero imputation không tự tạo thông tin còn thiếu, nên metadata nhiễu vẫn là rủi ro. |
+| Model gap của region extractor | Region recall benchmark và failure logging theo category | Detector có thể bỏ sót object ngoài distribution; cần đo riêng các failure case này trước khi kết luận về retrieval. |
+| Metadata noise | MEM, cross-modal contrastive learning và validation metadata | Key-value structure giúp phân biệt vai trò của thuộc tính; cross-modal loss giảm phụ thuộc vào một nguồn. Cần tiền xử lý và kiểm tra metadata trước khi index. |
+| Quy mô, latency và catalog update | Embedding offline, Flat baseline, Faiss HNSW/IVF-PQ và metadata mapping | Flat tách lỗi representation khỏi lỗi ANN; HNSW phục vụ prototype latency thấp; IVF-PQ giảm memory khi catalog lớn. Update catalog cần quy trình add/rebuild và benchmark định kỳ. |
+
+Nhờ cách phân tách này, kết quả thực nghiệm có thể trả lời rõ ba câu hỏi: embedding có phân biệt đúng sản phẩm không, ANN đã đánh đổi bao nhiêu chất lượng để đổi lấy tốc độ, và nhóm query nào vẫn là failure case cần cải thiện.
+
+## 7.21. Summary
 
 SCALE + Faiss-based retrieval phù hợp với đề tài vì SCALE học representation chung cho 5 modality và tự cân bằng đóng góp giữa các modality, còn Flat/HNSW/IVF-PQ biến embedding đó thành hệ thống truy hồi có thể đo đạc và mở rộng. Điểm cần nhấn mạnh là mỗi block trong kiến trúc đều có vai trò cụ thể: image branch học vùng sản phẩm, text branch học mô tả, table branch học thuộc tính có cấu trúc, video branch học góc nhìn theo thời gian, audio branch học tín hiệu âm thanh/voice, JCT học quan hệ giữa tất cả token, SIMCL học cách cân bằng modality, và Faiss HNSW/IVF-PQ phục vụ truy hồi top-K ở quy mô lớn.

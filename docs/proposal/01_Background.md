@@ -8,13 +8,11 @@ Visual search giải quyết phần lớn ma sát đó bằng cách cho phép ng
 
 ## 1.2. Visual Product Image Search là gì?
 
-Visual Product Image Search là bài toán tìm kiếm sản phẩm trong catalog dựa trên độ tương đồng giữa query và sản phẩm. Query có thể là:
+Visual Product Image Search là bài toán tìm kiếm sản phẩm trong catalog dựa trên độ tương đồng giữa query và product entry. Trong phạm vi đề tài, query chính là ảnh; text hoặc bảng thuộc tính ngắn chỉ là ngữ cảnh bổ sung khi có sẵn. Catalog có thể chứa:
 
-- Ảnh sản phẩm do người dùng tải lên.
-- Text mô tả như "áo khoác denim xanh".
-- Video ngắn thể hiện sản phẩm ở nhiều góc nhìn.
-- Audio hoặc voice query mô tả nhu cầu.
-- Bảng thông tin như brand, material, color, style, usage.
+- Ảnh sản phẩm do người dùng tải lên hoặc chụp từ thực tế.
+- Title/caption và bảng thông tin như brand, material, color, style, usage.
+- Video nhiều góc nhìn và audio/mô tả đi kèm listing, nếu dataset có cung cấp.
 
 Kết quả không chỉ cần giống về màu hoặc texture, mà còn phải đúng ngữ nghĩa thương mại: cùng loại sản phẩm, cùng style, cùng vật liệu hoặc cùng intent mua hàng. Vì vậy, bài toán này không thể chỉ dựa vào pixel-level similarity.
 
@@ -33,13 +31,13 @@ Visual search hữu ích với e-commerce vì:
 Hệ thống được định hướng theo hai tầng chính:
 
 1. **Feature extraction layer**: dùng SCALE trên M5Product để học embedding đa phương thức cho sản phẩm. Mục tiêu là đưa image, text, table, video và audio vào một không gian embedding có thể so sánh.
-2. **Retrieval layer**: dùng Faiss-based ANN retrieval để đánh chỉ mục embedding của catalog. Cấu hình chính là Faiss HNSW; FlatL2/FlatIP được dùng làm exact baseline; IVF-PQ được dùng khi cần giảm memory; ScaNN được xem là optional benchmark nếu môi trường hỗ trợ.
+2. **Retrieval layer**: dùng Faiss để đánh chỉ mục embedding của catalog. `IndexFlatIP` trên vector đã chuẩn hóa là exact baseline; Faiss HNSW là index chính; IVF-PQ/OPQ-PQ chỉ được dùng khi memory trở thành bottleneck.
 
 Luồng tổng quát:
 
 ```mermaid
 flowchart LR
-    Q["User Query<br/>Image/Text/Video/Audio/Table"] --> P["Preprocess"]
+    Q["User Query<br/>Image + optional text/table"] --> P["Preprocess"]
     P --> E["SCALE Feature Extractor"]
     E --> V["Query Embedding"]
     C["Product Catalog"] --> CE["Offline Product Embeddings"]

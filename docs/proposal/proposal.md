@@ -20,7 +20,7 @@
 
 ## Scope
 
-Đề tài tập trung xây dựng một hệ thống tìm kiếm sản phẩm trong thương mại điện tử dựa trên truy vấn đa phương thức. Hệ thống nhận query dưới dạng hình ảnh, văn bản, video, audio hoặc bảng thông tin sản phẩm; sau đó dùng SCALE để tạo embedding, dùng FlatL2/FlatIP làm exact baseline, dùng Faiss HNSW làm index chính và trả về danh sách top-K ảnh sản phẩm tương đồng nhất trong catalog.
+Đề tài tập trung xây dựng hệ thống tìm kiếm sản phẩm trong thương mại điện tử với **ảnh là query chính**. Text hoặc bảng thuộc tính ngắn có thể được dùng làm ngữ cảnh bổ sung khi có sẵn. Mỗi product entry trong catalog có thể chứa image, text, table, video và audio; SCALE tạo embedding cho entry, `IndexFlatIP` là exact baseline và Faiss HNSW là index chính. Hệ thống trả về top-K product entry kèm ảnh đại diện và metadata.
 
 Proposal này mô tả động lực, đặc trưng dữ liệu product e-commerce image, dataset M5Product, problem statement, related works, methodology dự kiến, tiêu chí đánh giá, kế hoạch thực hiện và danh mục tài liệu tham khảo.
 
@@ -36,13 +36,11 @@ Visual search giải quyết phần lớn ma sát đó bằng cách cho phép ng
 
 ## 1.2. Visual Product Image Search là gì?
 
-Visual Product Image Search là bài toán tìm kiếm sản phẩm trong catalog dựa trên độ tương đồng giữa query và sản phẩm. Query có thể là:
+Visual Product Image Search là bài toán tìm kiếm sản phẩm trong catalog dựa trên độ tương đồng giữa query và product entry. Trong phạm vi đề tài, query chính là ảnh; text hoặc bảng thuộc tính ngắn chỉ là ngữ cảnh bổ sung khi có sẵn. Catalog có thể chứa:
 
-- Ảnh sản phẩm do người dùng tải lên.
-- Text mô tả như "áo khoác denim xanh".
-- Video ngắn thể hiện sản phẩm ở nhiều góc nhìn.
-- Audio hoặc voice query mô tả nhu cầu.
-- Bảng thông tin như brand, material, color, style, usage.
+- Ảnh sản phẩm do người dùng tải lên hoặc chụp từ thực tế.
+- Title/caption và bảng thông tin như brand, material, color, style, usage.
+- Video nhiều góc nhìn và audio/mô tả đi kèm listing, nếu dataset có cung cấp.
 
 Kết quả không chỉ cần giống về màu hoặc texture, mà còn phải đúng ngữ nghĩa thương mại: cùng loại sản phẩm, cùng style, cùng vật liệu hoặc cùng intent mua hàng. Vì vậy, bài toán này không thể chỉ dựa vào pixel-level similarity.
 
@@ -61,13 +59,13 @@ Visual search hữu ích với e-commerce vì:
 Hệ thống được định hướng theo hai tầng chính:
 
 1. **Feature extraction layer**: dùng SCALE trên M5Product để học embedding đa phương thức cho sản phẩm. Mục tiêu là đưa image, text, table, video và audio vào một không gian embedding có thể so sánh.
-2. **Retrieval layer**: dùng Faiss-based ANN retrieval để đánh chỉ mục embedding của catalog. Cấu hình chính là Faiss HNSW; FlatL2/FlatIP được dùng làm exact baseline; IVF-PQ được dùng khi cần giảm memory; ScaNN được xem là optional benchmark nếu môi trường hỗ trợ.
+2. **Retrieval layer**: dùng Faiss để đánh chỉ mục embedding của catalog. `IndexFlatIP` trên vector đã chuẩn hóa là exact baseline; Faiss HNSW là index chính; IVF-PQ/OPQ-PQ chỉ được dùng khi memory trở thành bottleneck.
 
 Luồng tổng quát:
 
 ```mermaid
 flowchart LR
-    Q["User Query<br/>Image/Text/Video/Audio/Table"] --> P["Preprocess"]
+    Q["User Query<br/>Image + optional text/table"] --> P["Preprocess"]
     P --> E["SCALE Feature Extractor"]
     E --> V["Query Embedding"]
     C["Product Catalog"] --> CE["Offline Product Embeddings"]
@@ -117,7 +115,9 @@ E-commerce catalog thường có thuộc tính không đầy đủ. Sản phẩm
 | Sensory Gap | Khác biệt giữa ảnh catalog đẹp và ảnh query ngoài đời: ánh sáng, góc chụp, crop, compression. | Làm embedding lệch dù là cùng sản phẩm. |
 | Semantic Gap | Đặc trưng pixel giống nhau nhưng category/intent khác nhau. | Trả về sản phẩm nhìn giống nhưng không đúng nhu cầu mua. |
 | Context-Query Gap | Query của người dùng thiếu ngữ cảnh hoặc có ngữ cảnh khác catalog. | Khó hiểu người dùng muốn cùng sản phẩm, cùng style hay cùng chức năng. |
-| Modal Gap | Query và catalog có modality khác nhau: ảnh query nhưng catalog có text/table/video/audio. | Cần học không gian chung để so sánh cross-modal. |
+| Model Gap | Khả năng nhận biết/đề xuất vùng của model không bao quát mọi loại sản phẩm, thuộc tính và bối cảnh trong ảnh thực tế. | Có thể bỏ sót object hoặc lấy sai region trước khi bước embedding và retrieval diễn ra. |
+
+**Model Gap** khác với việc catalog có nhiều modality. Đây là khoảng cách giữa phạm vi object/region mà mô hình đã học và phạm vi sản phẩm xuất hiện khi người dùng truy vấn. Ví dụ, detector kiểu YOLO phụ thuộc vào các class và phân bố dữ liệu huấn luyện; do đó không nên giả định nó sẽ phát hiện đúng mọi sản phẩm mới hoặc long-tail. Với đề tài này, gap được theo dõi bằng region recall và failure analysis, không được xem là một cải tiến bổ sung của pipeline.
 
 ## 2.4. Quy trình visual search điển hình
 
@@ -177,7 +177,7 @@ Bài báo M5Product mô tả training set gồm **4,423,160 samples** từ **3,5
 
 ## 3.5. Vì sao M5Product phù hợp với đề tài?
 
-- Có đủ 5 loại input đúng với problem statement: image, text, video, audio, information table.
+- Có đủ 5 modality cho product entry trong catalog: image, text, video, audio và information table.
 - Có dữ liệu lớn để học embedding robust.
 - Có missing modality, giúp kiểm tra khả năng vận hành khi catalog không đầy đủ.
 - Có category đa dạng hơn các dataset thời trang hẹp miền.
@@ -189,7 +189,7 @@ Chúng tôi dự kiến dùng M5Product theo ba pha:
 
 1. **Pretraining/finetuning feature extractor**: học embedding chung bằng SCALE.
 2. **Build gallery embedding**: trích xuất embedding cho ảnh sản phẩm trong catalog.
-3. **Evaluate retrieval**: dùng query set để truy hồi top-K qua FlatL2/FlatIP baseline và Faiss HNSW/IVF-PQ index, sau đó đo mAP@K, Precision@K, Recall@K.
+3. **Evaluate retrieval**: dùng query set để truy hồi top-K qua `IndexFlatIP` exact baseline, Faiss HNSW và IVF-PQ, sau đó đo mAP@K, Precision@K, Recall@K.
 
 ```mermaid
 flowchart LR
@@ -207,22 +207,22 @@ flowchart LR
 
 ## 4.1. Mục tiêu
 
-Mục tiêu là tìm ra một phương pháp để giải quyết search trên e-commerce: với một catalog gồm nhiều ảnh sản phẩm và một query đa phương thức, hệ thống phải trả về danh sách top-K ảnh sản phẩm giống query nhất.
+Mục tiêu là xây dựng hệ thống retrieval cho e-commerce: với catalog gồm các product entry đa phương thức và một ảnh query, hệ thống trả về top-K product entry phù hợp nhất. Text hoặc bảng thuộc tính ngắn, nếu đi kèm query, được dùng làm ngữ cảnh bổ sung chứ không mở rộng phạm vi thành video/audio query.
 
 ## 4.2. Formal Definition
 
 | Thành phần | Mô tả |
 | --- | --- |
-| **Input** | **Dataset D(n)**: Danh sách n hình ảnh Product E-commerce.<br>**Query**: Image, Text, Video, Audio, Information Table. |
-| **Output** | Danh sách top-K image giống query nhất. |
+| **Input** | **Catalog D(n)**: n product entry, mỗi entry có ảnh đại diện và metadata/modality sẵn có.<br>**Query**: ảnh; có thể kèm text hoặc bảng thuộc tính ngắn. |
+| **Output** | Danh sách top-K product entry phù hợp, kèm ảnh đại diện và metadata. |
 
 Ký hiệu:
 
-- `D = {x_1, x_2, ..., x_n}` là catalog ảnh sản phẩm.
-- `q` là query có thể thuộc một hoặc nhiều modality.
-- `f(.)` là mô hình trích xuất embedding.
-- `sim(f(q), f(x_i))` là độ tương đồng giữa query và ảnh sản phẩm.
-- `TopK(q, D)` là K sản phẩm có similarity cao nhất.
+- `D = {x_1, x_2, ..., x_n}` là catalog product entry; mỗi `x_i` gồm ảnh đại diện và các modality/metadata có sẵn.
+- `q = (q_img, q_ctx)` gồm ảnh query `q_img` và ngữ cảnh tùy chọn `q_ctx` (text/table).
+- `f_q(.)` và `f_c(.)` là query encoder và catalog-entry encoder.
+- `sim(f_q(q), f_c(x_i))` là độ tương đồng giữa query và product entry.
+- `TopK(q, D)` là K product entry có score cao nhất.
 
 Bài toán:
 
@@ -233,29 +233,61 @@ TopK(q, D) = arg top-K_{x_i in D} sim(f(q), f(x_i))
 ## 4.3. Yêu cầu hệ thống
 
 - Trích xuất embedding đủ giàu để biểu diễn visual và semantic similarity.
-- Hỗ trợ query đa phương thức.
+- Hỗ trợ ảnh query và ngữ cảnh text/table tùy chọn; xử lý missing modality ở catalog.
 - Truy hồi nhanh trên catalog lớn.
 - Chống nhiễu query như crop, compression, rotation, watermark hoặc background phức tạp.
-- Có metric đánh giá rõ ràng cho cả model quality và product/system quality.
+- Có metric đánh giá rõ ràng cho representation, retrieval và chất lượng hệ thống.
 
 ## 4.4. Output mong muốn
 
 Với mỗi query, hệ thống trả về:
 
-- Danh sách `top-K` ảnh sản phẩm.
+- Danh sách `top-K` product entry kèm ảnh đại diện.
 - Similarity score hoặc distance score.
 - Product metadata cơ bản để phục vụ UI/ranking sau này.
 - Thời gian truy hồi và trạng thái index để phục vụ đánh giá hệ thống.
 
 ---
 
-# 05. Related Works
+# 05. Các thách thức thực hiện
 
-## 5.1. Tổng quan
+## 5.1. Bản chất của bài toán
+
+Truy vấn ảnh trong thương mại điện tử không chỉ là bài toán tìm hai ảnh có nội dung gần nhau. Một ảnh query có thể biểu đạt nhu cầu tìm đúng một SKU (*Stock Keeping Unit* — mã định danh của một đơn vị hàng hóa/biến thể cụ thể), một biến thể của sản phẩm hoặc một sản phẩm thay thế có cùng thuộc tính. Trong khi đó, catalog chứa ảnh, title, thuộc tính cấu trúc và nhiều hình thức trình bày khác nhau. Vì vậy, hệ thống phải đối mặt đồng thời với sai khác dữ liệu, sự mơ hồ về mục tiêu truy vấn và áp lực phục vụ ở quy mô lớn [36]--[38].
+
+## 5.2. Khoảng cách giữa ảnh query và ảnh catalog
+
+Ảnh query thường do người dùng chụp hoặc trích từ nội dung trên mạng xã hội. Các ảnh này có thể bị nén, mờ, thiếu sáng, chụp nghiêng, che khuất hoặc có nhiều vật thể trong cùng khung hình. Ngược lại, ảnh catalog thường được chuẩn hóa, có nền sạch, góc chụp ổn định và sản phẩm chiếm phần lớn diện tích ảnh. Sự khác biệt này tạo ra *domain gap*: đặc trưng học từ ảnh catalog không nhất thiết còn ổn định trên ảnh query thực tế.
+
+Chất lượng ảnh tham chiếu cũng không đồng đều. Ảnh có sản phẩm quá nhỏ, có người mẫu hoặc vật thể phụ, thiếu các góc nhìn quan trọng hay có nền gây nhiễu đều làm giảm khả năng nhận diện. Tài liệu triển khai product search cho thấy hiệu quả phụ thuộc đáng kể vào việc sản phẩm được thể hiện rõ, ít vật thể gây nhiễu và có nhiều góc nhìn bổ sung [37].
+
+## 5.3. Tính phân biệt thuộc tính chi tiết
+
+Trong e-commerce, nhiều candidate có hình dáng tổng thể rất giống nhau nhưng khác ở các chi tiết có giá trị quyết định đối với người mua: logo, khóa kéo, texture, màu sắc, dung tích, kích thước, mã phiên bản hoặc vật liệu. Các khác biệt này thường nhỏ hơn nhiều so với thay đổi về background, ánh sáng hoặc bố cục.
+
+Thách thức này đặc biệt rõ khi query chỉ là ảnh crop một bộ phận của sản phẩm, còn candidate là ảnh đầy đủ có background hoặc có nhiều item. TIGER-FG mô tả hiện tượng này là *granularity disparity*: biểu diễn toàn cục có thể bị chi phối bởi vùng nổi bật nhưng không liên quan đến đối tượng cần tìm [38]. Do đó, một kết quả có visual similarity cao vẫn có thể sai về biến thể hoặc thuộc tính sản phẩm.
+
+## 5.4. Không đối xứng modality và nhiễu metadata
+
+Query và candidate thường không có cùng loại thông tin. Người dùng có thể chỉ gửi một ảnh, trong khi candidate được mô tả bằng ảnh, title, category, brand và bảng thuộc tính. Ngược lại, query có thể có text nhưng candidate lại thiếu metadata. Sự không đối xứng này được gọi là *modality disparity* trong image-to-multimodal retrieval [38].
+
+Metadata catalog cũng không luôn đáng tin cậy. Title có thể ngắn hoặc tối ưu cho quảng cáo thay vì mô tả; cùng một thuộc tính có nhiều cách ghi; brand/category bị thiếu; và một số record không có video, audio hoặc bảng thông số. Vì vậy, semantic signal từ metadata có thể vừa hỗ trợ phân biệt sản phẩm, vừa tạo thêm nhiễu cho retrieval.
+
+## 5.5. Quy mô catalog và tính động của dữ liệu
+
+Chi phí tìm kiếm exact tăng tuyến tính theo số lượng embedding, trong khi catalog e-commerce có thể gồm từ hàng chục nghìn đến hàng triệu ảnh. Hệ thống phải duy trì độ trễ thấp nhưng vẫn giữ được chất lượng xếp hạng đủ tốt; đây là trade-off cố hữu giữa exact search và approximate nearest-neighbor search.
+
+Catalog cũng thay đổi liên tục: sản phẩm mới được thêm, ảnh được thay thế, sản phẩm hết bán và metadata được hiệu chỉnh. Các cập nhật này có thể làm index, embedding và mapping metadata không đồng bộ. Vì vậy, hệ thống cần có quy trình cập nhật tăng dần hoặc tái tạo index theo lô, đồng thời benchmark lại sau các đợt thay đổi lớn của catalog [37].
+
+---
+
+# 06. Related Works
+
+## 6.1. Tổng quan
 
 Các bài báo trong `docs/paper/related works` cho thấy visual product search đang phát triển theo ba hướng chính: học embedding đa phương thức, hiểu sản phẩm ở mức product-level/multi-view, và triển khai vector retrieval quy mô lớn. Từ đó, phương pháp của chúng tôi chọn **SCALE** để trích xuất đặc trưng đa phương thức và **Faiss-based ANN retrieval** để đánh chỉ mục/truy hồi nhanh.
 
-## 5.2. Các công trình liên quan
+## 6.2. Các công trình liên quan
 
 | Paper | Ý tưởng chính | Điểm mạnh | Giới hạn/gap |
 | --- | --- | --- | --- |
@@ -265,35 +297,35 @@ Các bài báo trong `docs/paper/related works` cho thấy visual product search
 | MRSE | Multi-modality retrieval system cho large-scale e-commerce search, dùng text, image và user preference. | Tối ưu search công nghiệp với LMoE, hybrid loss, online metrics. | Tập trung nhiều vào text query/user behavior hơn image query thuần. |
 | FashionMV | Product-level composed image retrieval với multi-view fashion data. | Nhấn mạnh view incompleteness và product-level representation. | Hẹp miền fashion và yêu cầu dữ liệu multi-view/caption phức tạp. |
 
-## 5.3. Bảng so sánh theo gap
+## 6.3. Bảng so sánh theo gap
 
-| Method | Sensory Gap | Semantic Gap | Context-Query Gap | Modal Gap |
+| Method | Sensory Gap | Semantic Gap | Context-Query Gap | Model Gap |
 | --- | --- | --- | --- | --- |
-| Single image CNN/I2I | Trung bình: học texture/shape tốt nhưng dễ nhạy với crop, compression. | Yếu: dễ trả về sản phẩm nhìn giống nhưng sai category. | Yếu: không hiểu intent ngoài ảnh. | Yếu: chỉ image. |
-| Triplet + attribute + VAE (Shopsy) | Tốt: augmentation và VAE giúp robust hơn. | Trung bình: attribute/triplet giảm sai fine-grained. | Trung bình: tốt cho image query thực tế nhưng ít context modality khác. | Yếu-Trung bình: chủ yếu image và attribute. |
-| MIEM | Trung bình-Tốt: nhiều ảnh sản phẩm giảm phụ thuộc một view. | Tốt: title + image giúp hiểu category/semantic. | Trung bình: query vẫn chủ yếu image, context đến từ product title. | Trung bình: image + text. |
-| MRSE | Trung bình: có image feature nhưng không tối ưu riêng cho noisy image query. | Tốt: text, image, user preference được align. | Tốt: modeling preference theo user/history. | Trung bình-Tốt: nhiều modality nhưng không đủ 5 modality của M5Product. |
-| FashionMV/ProCIR | Tốt: multi-view giảm view incompleteness. | Tốt: product-level embedding và modification text. | Tốt: composed query image + text. | Trung bình: chủ yếu image + text trong fashion. |
-| **SCALE + Faiss HNSW/IVF-PQ (ours)** | **Tốt**: tận dụng image/video/table/text/audio và có thể bổ sung augmentation. | **Tốt**: SCALE align semantic giữa modality, table/text bổ sung category/attribute. | **Tốt**: query nhiều modality, có thể biểu diễn intent bằng text/table/audio. | **Rất tốt**: thiết kế trực tiếp cho 5 modality và missing modality. |
+| Single image CNN/I2I | Trung bình: học texture/shape tốt nhưng dễ nhạy với crop, compression. | Yếu: dễ trả về sản phẩm nhìn giống nhưng sai category. | Yếu: không hiểu intent ngoài ảnh. | Yếu: coverage phụ thuộc dữ liệu huấn luyện, không có cơ chế xử lý object/region mới. |
+| Triplet + attribute + VAE (Shopsy) | Tốt: augmentation và VAE giúp robust hơn. | Trung bình: attribute/triplet giảm sai fine-grained. | Trung bình: tốt cho image query thực tế nhưng ít context modality khác. | Trung bình: embedding tốt hơn nhưng detector/attribute vẫn bị giới hạn bởi distribution đã học. |
+| MIEM | Trung bình-Tốt: nhiều ảnh sản phẩm giảm phụ thuộc một view. | Tốt: title + image giúp hiểu category/semantic. | Trung bình: query vẫn chủ yếu image, context đến từ product title. | Trung bình: phụ thuộc image/title trong miền marketplace đã huấn luyện. |
+| MRSE | Trung bình: có image feature nhưng không tối ưu riêng cho noisy image query. | Tốt: text, image, user preference được align. | Tốt: modeling preference theo user/history. | Trung bình: representation đa phương thức không tự giải quyết việc localize object ngoài distribution. |
+| FashionMV/ProCIR | Tốt: multi-view giảm view incompleteness. | Tốt: product-level embedding và modification text. | Tốt: composed query image + text. | Yếu-Trung bình: chủ yếu được kiểm chứng trong miền fashion. |
+| **SCALE + Faiss HNSW/IVF-PQ (ours)** | **Trung bình**: cần kiểm chứng trên ảnh query thực tế. | **Tốt**: SCALE align semantic giữa modality, table/text bổ sung category/attribute. | **Tốt**: ảnh query có thể kèm text/table để làm rõ intent. | **Trung bình**: region extractor vẫn cần được kiểm thử trên category long-tail. |
 
-## 5.4. Vì sao lựa chọn này phù hợp với Product E-commerce Retrieval
+## 6.4. Vì sao lựa chọn này phù hợp với Product E-commerce Retrieval
 
 Product E-commerce Retrieval có hai yêu cầu khác nhau nhưng phải giải quyết đồng thời. Thứ nhất là **biểu diễn đúng sản phẩm**: hệ thống phải hiểu ảnh, tiêu đề, thuộc tính bảng, video và audio trong cùng một không gian semantic. Thứ hai là **truy hồi nhanh ở quy mô catalog lớn**: sau khi có embedding, hệ thống phải tìm top-K trong hàng trăm nghìn đến hàng triệu sản phẩm mà không duyệt tuyến tính toàn bộ catalog ở mỗi query. Vì vậy, phương pháp được chọn cần tách rõ **feature extraction** và **retrieval indexing**.
 
-### 5.4.1. Vì sao dùng SCALE cho feature extraction?
+### 6.4.1. Vì sao dùng SCALE cho feature extraction?
 
 SCALE phù hợp hơn các hướng image-only vì dữ liệu e-commerce không chỉ nằm trong ảnh. Một ảnh sản phẩm có thể cho biết màu, hình dạng, texture; nhưng title và table lại cho biết brand, material, category, usage scene; video cho biết nhiều góc nhìn; audio hoặc voice có thể mang thông tin mô tả bổ sung. Các nguồn này giúp giảm bốn gap chính:
 
 | Gap | SCALE hỗ trợ như thế nào? |
 | --- | --- |
-| Sensory Gap | Image/video branch giúp học nhiều góc nhìn; augmentation có thể bổ sung khả năng chống crop, compression, watermark. |
+| Sensory Gap | Image/video branch giúp học nhiều góc nhìn; cần đánh giá riêng trên ảnh query nhiễu. |
 | Semantic Gap | Text/table branch bổ sung category, brand, material, function để tránh trả về sản phẩm chỉ giống texture nhưng sai ý nghĩa. |
-| Context-Query Gap | Query có thể là image + text/table/audio, giúp mô hình hiểu intent tốt hơn image-only. |
-| Modal Gap | SCALE được thiết kế trực tiếp cho 5 modality và có SIMCL để học alignment giữa các modality. |
+| Context-Query Gap | Ảnh query có thể kèm text/table ngắn để làm rõ intent; nếu không có, hệ thống vẫn truy hồi bằng ảnh. |
+| Model Gap | SCALE bổ sung tín hiệu text/table/video/audio cho representation, nhưng không thay thế detector. Cần đo recall của region proposal theo category và ghi nhận failure case ngoài distribution. |
 
 Điểm mạnh quan trọng của SCALE là **Self-harmonized Inter-Modality Contrastive Learning (SIMCL)**. Với 5 modality, không phải cặp modality nào cũng hữu ích như nhau. Ví dụ image-text thường mạnh trong retrieval, image-audio có thể chỉ hữu ích với một số category. SIMCL học trọng số alignment giữa các modality, nhờ đó mô hình không ép mọi modality đóng góp ngang nhau. Điều này phù hợp với catalog e-commerce vì dữ liệu thường thiếu modality, nhiễu và long-tail.
 
-### 5.4.2. Vì sao cần FlatL2/FlatIP baseline?
+### 6.4.2. Vì sao cần FlatL2/FlatIP baseline?
 
 FlatL2/FlatIP không phải lựa chọn triển khai cuối cho catalog lớn, nhưng nó rất cần trong nghiên cứu vì đây là **exact search baseline**. Nếu HNSW hoặc IVF-PQ trả kết quả kém, ta cần biết lỗi đến từ embedding SCALE hay từ approximation của index.
 
@@ -305,7 +337,7 @@ Flat baseline giúp trả lời ba câu hỏi:
 
 Vì vậy, FlatL2/FlatIP là mốc đo chất lượng bắt buộc trước khi kết luận Faiss HNSW hoặc IVF-PQ tốt.
 
-### 5.4.3. Vì sao dùng Faiss HNSW làm index chính?
+### 6.4.3. Vì sao dùng Faiss HNSW làm index chính?
 
 Faiss HNSW phù hợp làm index chính cho prototype vì:
 
@@ -317,7 +349,7 @@ Faiss HNSW phù hợp làm index chính cho prototype vì:
 
 Trong Product E-commerce Retrieval, người dùng thường chỉ nhìn top vài kết quả đầu. Vì vậy, index chính cần ưu tiên Precision@K/Recall@K ở K nhỏ và latency thấp. HNSW là lựa chọn cân bằng tốt cho giai đoạn này.
 
-### 5.4.4. Vì sao cần IVF-PQ/OPQ-PQ?
+### 6.4.4. Vì sao cần IVF-PQ/OPQ-PQ?
 
 HNSW nhanh và chính xác nhưng tốn RAM vì lưu graph links và vector. Khi catalog tăng lên hàng triệu hoặc hàng chục triệu sản phẩm, memory footprint trở thành bottleneck. IVF-PQ/OPQ-PQ phù hợp làm phương án mở rộng vì:
 
@@ -327,42 +359,36 @@ HNSW nhanh và chính xác nhưng tốn RAM vì lưu graph links và vector. Khi
 
 Đổi lại, IVF-PQ có thể làm giảm precision/recall và cần training/tuning (`nlist`, `nprobe`, code size). Vì vậy proposal không chọn IVF-PQ làm index đầu tiên, mà dùng nó như phương án scale khi HNSW bắt đầu quá nặng.
 
-### 5.4.5. Vì sao ScaNN chỉ là optional benchmark?
+### 6.4.5. ScaNN trong related work
 
-Paper Shopsy cho thấy ScaNN có QPS rất tốt và Precision@4 tương đương các index mạnh trong bối cảnh production. Tuy nhiên, trong đồ án này ScaNN nên là optional benchmark thay vì dependency chính vì:
+Shopsy sử dụng ScaNN như một tham chiếu cho ANN retrieval trong môi trường production. Trong proposal này, ScaNN chỉ được giữ ở related work để đối chiếu định hướng kỹ thuật; nó không thuộc pipeline cài đặt hay kế hoạch benchmark. Phạm vi triển khai được giới hạn ở `IndexFlatIP`, Faiss HNSW và IVF-PQ để mọi index dùng chung một toolkit.
 
-- Môi trường cài đặt có thể khó hơn Faiss.
-- Faiss đã đủ để xây exact baseline, HNSW và IVF-PQ trong cùng một toolkit.
-- Mục tiêu chính của đề tài là chứng minh pipeline SCALE + vector retrieval, không phụ thuộc vào một thư viện search duy nhất.
-
-Do đó, ScaNN được dùng để đối chiếu nếu còn thời gian và môi trường hỗ trợ. Nếu ScaNN không chạy được, hệ thống vẫn hoàn chỉnh với FlatL2/FlatIP + Faiss HNSW + Faiss IVF-PQ.
-
-### 5.4.6. Tóm tắt vai trò từng thành phần
+### 6.4.6. Tóm tắt vai trò từng thành phần
 
 | Thành phần | Vai trò trong proposal | Lý do cần có |
 | --- | --- | --- |
-| SCALE | Multi-modal feature extractor. | Giải quyết semantic/modal gap bằng image, text, table, video, audio. |
-| FlatL2/FlatIP | Exact baseline. | Đo chất lượng embedding và đo recall loss của approximate index. |
+| SCALE | Multi-modal feature extractor. | Giải quyết semantic gap và tăng tín hiệu biểu diễn từ image, text, table, video, audio. |
+| `IndexFlatIP` | Exact baseline. | Đo chất lượng embedding và đo recall loss của approximate index. |
 | Faiss HNSW | Index chính. | Dễ triển khai, không cần train, recall-latency tốt cho demo. |
 | Faiss IVF-PQ/OPQ-PQ | Index scale/nén. | Giảm memory khi catalog lớn. |
-| ScaNN | Optional benchmark. | Có bằng chứng tốt từ Shopsy, nhưng không bắt buộc để hoàn thành hệ thống. |
+| ScaNN | Tham chiếu related work. | Không thuộc pipeline triển khai của đề tài. |
 
-Như vậy, lựa chọn này phù hợp với Product E-commerce Retrieval vì nó không chỉ tối ưu một phía. SCALE tập trung vào chất lượng biểu diễn sản phẩm, Flat baseline giúp đánh giá khoa học, Faiss HNSW phục vụ demo/latency, IVF-PQ phục vụ scale, và ScaNN giúp so sánh với hướng production trong related work.
+Như vậy, lựa chọn này phù hợp với Product E-commerce Retrieval vì SCALE tập trung vào chất lượng biểu diễn sản phẩm, `IndexFlatIP` giúp đánh giá khoa học, Faiss HNSW phục vụ demo/latency và IVF-PQ phục vụ scale. ScaNN chỉ là một tham chiếu production trong related work.
 
-## 5.5. Kết luận lựa chọn phương pháp
+## 6.5. Kết luận lựa chọn phương pháp
 
-SCALE phù hợp với feature extraction vì nó được thiết kế cho M5Product, học adaptive modality importance và xử lý missing modality. Với retrieval layer, chúng tôi không xem ANN là một index cụ thể mà là nhóm kỹ thuật cần chọn implementation. Proposal dùng **FlatL2/FlatIP** làm exact baseline, **Faiss HNSW** làm index chính vì cân bằng tốt giữa recall và latency, **Faiss IVF-PQ/OPQ-PQ** khi memory là bottleneck, và **ScaNN** là optional benchmark vì Shopsy cho thấy ScaNN/HNSW hoạt động tốt trong môi trường production. Các lựa chọn này cần được so sánh bằng Precision@K, Recall@K, QPS, memory footprint và build time.
+SCALE phù hợp với feature extraction vì nó được thiết kế cho M5Product, học adaptive modality importance và xử lý missing modality. Với retrieval layer, pipeline triển khai dùng **`IndexFlatIP`** làm exact baseline, **Faiss HNSW** làm index chính vì cân bằng tốt giữa recall và latency, và **Faiss IVF-PQ/OPQ-PQ** khi memory là bottleneck. Các cấu hình này được benchmark bằng Precision@K, Recall@K, QPS, memory footprint và build time.
 
 ---
 
-# 06. Methodology
+# 07. Methodology
 
-## 6.1. Mục tiêu kỹ thuật
+## 7.1. Mục tiêu kỹ thuật
 
 Phương pháp đề xuất gồm hai khối lớn:
 
 1. **SCALE feature extractor**: biến dữ liệu sản phẩm đa phương thức thành vector embedding chung.
-2. **Faiss-based retrieval index**: lưu và tìm kiếm các embedding đó để trả về top-K sản phẩm gần query nhất. Trong đó FlatL2/FlatIP là exact baseline, Faiss HNSW là index chính, Faiss IVF-PQ/OPQ-PQ là phương án khi cần nén, và ScaNN là optional benchmark.
+2. **Faiss-based retrieval index**: lưu và tìm kiếm các embedding đó để trả về top-K product entry gần query nhất. `IndexFlatIP` là exact baseline trên vector đã chuẩn hóa, Faiss HNSW là index chính, còn IVF-PQ/OPQ-PQ là phương án nén khi cần.
 
 Nói ngắn gọn: SCALE trả lời câu hỏi "query và sản phẩm có giống nhau không?", còn retrieval index trả lời câu hỏi "làm sao tìm nhanh sản phẩm giống nhất trong hàng triệu sản phẩm?".
 
@@ -375,7 +401,7 @@ flowchart LR
         PE --> IDX["Build Faiss HNSW / IVF-PQ Index"]
     end
     subgraph Online["Online Query Pipeline"]
-        Q["Query<br/>Image/Text/Video/Audio/Table"] --> QP["Preprocess"]
+        Q["Query<br/>Image + optional text/table"] --> QP["Preprocess"]
         QP --> QF["SCALE Query Encoder"]
         QF --> QE["Query Embedding"]
         QE --> IDX
@@ -383,7 +409,7 @@ flowchart LR
     end
 ```
 
-## 6.2. Một khái niệm nền: token, feature và embedding
+## 7.2. Một khái niệm nền: token, feature và embedding
 
 Trước khi đi vào từng modality, cần phân biệt ba khái niệm:
 
@@ -393,7 +419,7 @@ Trước khi đi vào từng modality, cần phân biệt ba khái niệm:
 
 Ví dụ với text `"white leather sneakers"`, tokenizer có thể tách thành các token như `[CLS]`, `white`, `leather`, `sneakers`, `[SEP]`; mỗi token được biến thành một vector 768 chiều. Với image, "token" không phải là word mà là region feature: vùng giày, vùng logo, vùng đế giày, vùng texture, v.v.
 
-## 6.3. Tổng quan kiến trúc SCALE
+## 7.3. Tổng quan kiến trúc SCALE
 
 SCALE trong paper M5Product là một kiến trúc multi-modal pretraining gồm:
 
@@ -428,9 +454,9 @@ Theo paper M5Product/SCALE:
 - Audio dùng MFCC.
 - Missing modality được xử lý bằng zero imputation.
 
-## 6.4. Image branch: Image Regions -> Image Transformer
+## 7.4. Image branch: Image Regions -> Image Transformer
 
-### 6.4.1. Image branch là gì?
+### 7.4.1. Image branch là gì?
 
 Image branch là nhánh biến ảnh sản phẩm thành một sequence các vector mô tả những vùng quan trọng trong ảnh. Thay vì đưa toàn bộ ảnh vào transformer như một ma trận pixel, SCALE dùng object/region features.
 
@@ -444,13 +470,13 @@ Ví dụ ảnh một đôi giày:
 
 Mỗi region được biểu diễn bằng một vector. Sequence các vector này là input cho Image Transformer.
 
-### 6.4.2. Vì sao dùng region feature thay vì toàn ảnh?
+### 7.4.2. Vì sao dùng region feature thay vì toàn ảnh?
 
 Trong e-commerce, background, model, ánh sáng và layout ảnh có thể thay đổi mạnh. Nếu dùng toàn ảnh, model dễ học nhầm background hoặc style chụp. Region feature giúp model tập trung vào object chính và các bộ phận sản phẩm.
 
 Paper SCALE dùng hướng **bottom-up attention**: object detector đề xuất các vùng ảnh quan trọng trước, sau đó transformer học quan hệ giữa các vùng đó.
 
-### 6.4.3. Input và output
+### 7.4.3. Input và output
 
 | Thành phần | Mô tả |
 | --- | --- |
@@ -459,7 +485,7 @@ Paper SCALE dùng hướng **bottom-up attention**: object detector đề xuất
 | Region feature | Vector cho mỗi vùng, ví dụ `N x d`. |
 | Image transformer output | Sequence token ảnh đã được contextualize, ví dụ `N x 768`. |
 
-### 6.4.4. Tool đề xuất
+### 7.4.4. Tool đề xuất
 
 | Tool | Nguồn | Vai trò |
 | --- | --- | --- |
@@ -469,22 +495,9 @@ Paper SCALE dùng hướng **bottom-up attention**: object detector đề xuất
 
 Nếu dùng đúng tinh thần paper, lựa chọn tốt nhất là `py-bottom-up-attention`. Nếu môi trường khó cài, có thể dùng `torchvision` Faster R-CNN để lấy bounding boxes, sau đó lấy feature từ backbone hoặc ROI pooled features. Đây là thay thế thực dụng, cần ghi rõ trong báo cáo là implementation approximation.
 
-### 6.4.5. Thiết kế thêm của nhóm
+## 7.5. Text branch: Text Tokens -> Text Transformer
 
-Paper nói image region extraction nhưng không mô tả chi tiết augmentation cho query thực tế. Chúng tôi bổ sung augmentation dựa trên Shopsy:
-
-- JPEG compression.
-- Random crop.
-- Rotation nhẹ.
-- Horizontal flip.
-- Logo/watermark overlay.
-- Resize quality degradation.
-
-Mục tiêu là giảm **sensory gap** giữa ảnh catalog đẹp và ảnh query ngoài đời.
-
-## 6.5. Text branch: Text Tokens -> Text Transformer
-
-### 6.5.1. Text branch là gì?
+### 7.5.1. Text branch là gì?
 
 Text branch biến title/caption/description thành token vectors. Ví dụ:
 
@@ -495,11 +508,11 @@ Tokens: [CLS], bubble, matt, blind, box, storage, ladder, [SEP]
 
 Mỗi token được ánh xạ thành vector thông qua embedding layer của BERT, sau đó đi qua Text Transformer để học ngữ cảnh.
 
-### 6.5.2. BERT init nghĩa là gì?
+### 7.5.2. BERT init nghĩa là gì?
 
 SCALE không train text transformer từ con số 0. Paper dùng BERT để khởi tạo text transformer. BERT là encoder-only transformer đã học ngôn ngữ bằng masked language modeling. Vì vậy, ngay từ đầu model đã biết một phần quan hệ giữa các từ, ví dụ `leather`, `shoe`, `sneaker`, `white`, `size`.
 
-### 6.5.3. Input và output
+### 7.5.3. Input và output
 
 | Thành phần | Mô tả |
 | --- | --- |
@@ -508,7 +521,7 @@ SCALE không train text transformer từ con số 0. Paper dùng BERT để kh�
 | Text transformer output | Sequence token text, ví dụ `L_text x 768`. |
 | Vai trò | Bổ sung category, function, material, selling point mà ảnh không thể hiện rõ. |
 
-### 6.5.4. Tool đề xuất
+### 7.5.4. Tool đề xuất
 
 | Tool | Nguồn | Vai trò |
 | --- | --- | --- |
@@ -522,11 +535,9 @@ tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
 text_encoder = AutoModel.from_pretrained("bert-base-uncased")
 ```
 
-Nếu dữ liệu có tiếng Việt hoặc đa ngôn ngữ, có thể đổi sang `bert-base-multilingual-cased` hoặc PhoBERT. Đây là thiết kế thêm của nhóm nếu dataset/query tiếng Việt xuất hiện trong demo.
+## 7.6. Table branch: Table Entities -> Table Transformer
 
-## 6.6. Table branch: Table Entities -> Table Transformer
-
-### 6.6.1. Table entities là gì?
+### 7.6.1. Table entities là gì?
 
 Table trong e-commerce là thông tin có cấu trúc dạng key-value. Ví dụ:
 
@@ -540,28 +551,15 @@ Table trong e-commerce là thông tin có cấu trúc dạng key-value. Ví dụ
 
 Một **table entity** là một đơn vị thuộc tính có nghĩa, thường là cặp `key: value`. Ví dụ `Material: Wood` là một entity, `Color: White` là một entity. Nó khác text bình thường vì key cho biết vai trò của value.
 
-### 6.6.2. Vì sao không chỉ nối table thành text?
+### 7.6.2. Vì sao không chỉ nối table thành text?
 
 Nếu nối mọi thứ thành câu text, model có thể mất cấu trúc key-value. Ví dụ `white` trong `Color: White` khác với `Brand: White Label`. Table Transformer giúp model học rằng `Color`, `Brand`, `Material`, `Size`, `Applicable Scene` là các loại thuộc tính khác nhau.
 
-### 6.6.3. Cách biểu diễn table entity
+### 7.6.3. Cách biểu diễn table entity
 
-Paper SCALE nói table encoder là transformer riêng và dùng **Mask Entity Modeling (MEM)**. Paper không đưa đầy đủ code encoding table entity trong phần chính, nên chúng tôi đề xuất một serialization rõ ràng như sau:
+Paper SCALE dùng table transformer riêng và **Mask Entity Modeling (MEM)**, nhưng không công bố chi tiết serialization table trong phần chính. Chi tiết encoding table sẽ được quyết định khi hiện thực và ghi riêng trong báo cáo thực nghiệm; nó không được xem là một thành phần đã xác định của SCALE gốc.
 
-```text
-[ENT] key = material [VAL] wood [SEP]
-[ENT] key = color [VAL] white [SEP]
-[ENT] key = brand [VAL] tang craftsman [SEP]
-```
-
-Đây là **thiết kế thêm của nhóm**, không phải tool có sẵn từ paper. Lý do thiết kế:
-
-- Giữ được ranh giới từng entity.
-- Giữ được phân biệt key và value.
-- Cho phép mask nguyên entity trong MEM.
-- Dễ implement bằng tokenizer BERT hoặc tokenizer riêng.
-
-### 6.6.4. Input và output
+### 7.6.4. Input và output
 
 | Thành phần | Mô tả |
 | --- | --- |
@@ -570,7 +568,7 @@ Paper SCALE nói table encoder là transformer riêng và dùng **Mask Entity Mo
 | Table transformer output | Sequence token/entity table, ví dụ `L_table x 768`. |
 | Vai trò | Bổ sung fine-grained attributes như brand, material, color, size. |
 
-### 6.6.5. Tool đề xuất
+### 7.6.5. Tool đề xuất
 
 | Tool | Nguồn | Vai trò |
 | --- | --- | --- |
@@ -578,7 +576,7 @@ Paper SCALE nói table encoder là transformer riêng và dùng **Mask Entity Mo
 | Python `json` | Standard library. | Parse product attribute JSON. |
 | Hugging Face tokenizer | Tool ngoài. | Tokenize chuỗi entity serialization. |
 
-### 6.6.6. Mask Entity Modeling
+### 7.6.6. Mask Entity Modeling
 
 Với MLM, ta mask token lẻ. Với MEM, ta mask cả entity:
 
@@ -590,9 +588,9 @@ Target: material = wood
 
 Việc mask nguyên entity buộc model dùng image/text/video/audio còn lại để suy luận thuộc tính bị thiếu. Ví dụ nhìn ảnh ghế gỗ và title "wooden chair", model có thể dự đoán `Material: Wood`.
 
-## 6.7. Video branch: Video Frames -> Video Transformer
+## 7.7. Video branch: Video Frames -> Video Transformer
 
-### 6.7.1. Video branch là gì?
+### 7.7.1. Video branch là gì?
 
 Video branch biến video sản phẩm thành chuỗi frame features. Một video có nhiều frame, nhưng không thể đưa toàn bộ frame vào model vì quá nặng. Ta sample một số frame đại diện, ví dụ 8 hoặc 16 frame theo thời gian.
 
@@ -606,7 +604,7 @@ Ví dụ video quay túi xách:
 
 Những frame này giúp model hiểu sản phẩm ở nhiều góc nhìn.
 
-### 6.7.2. Input và output
+### 7.7.2. Input và output
 
 | Thành phần | Mô tả |
 | --- | --- |
@@ -615,7 +613,7 @@ Những frame này giúp model hiểu sản phẩm ở nhiều góc nhìn.
 | Frame feature | Vector cho từng frame hoặc region trong frame. |
 | Video transformer output | Sequence video tokens, ví dụ `T x 768`. |
 
-### 6.7.3. Tool đề xuất
+### 7.7.3. Tool đề xuất
 
 | Tool | Nguồn | Vai trò |
 | --- | --- | --- |
@@ -624,19 +622,9 @@ Những frame này giúp model hiểu sản phẩm ở nhiều góc nhìn.
 | `decord` | Tool ngoài. | Efficient video loading cho deep learning. |
 | `torchvision.io` | Tool ngoài. | Đọc video cơ bản trong PyTorch ecosystem. |
 
-### 6.7.4. Thiết kế thêm của nhóm
+## 7.8. Audio branch: Audio MFCC -> Audio Transformer
 
-Paper nói "ordinal frames sampled from video are fed into video encoder" nhưng không chốt sampling policy. Chúng tôi đề xuất:
-
-- **Uniform sampling**: lấy `T` frame cách đều toàn video, đơn giản và ổn định.
-- **Middle-biased sampling**: lấy nhiều frame ở giữa video nếu video đầu/cuối có intro/outro.
-- **Object-aware sampling**: nếu có detector, ưu tiên frame có object confidence cao.
-
-Giai đoạn đầu nên dùng uniform sampling vì dễ tái lập. Object-aware sampling là hướng nâng cấp nếu video noisy.
-
-## 6.8. Audio branch: Audio MFCC -> Audio Transformer
-
-### 6.8.1. Audio branch là gì?
+### 7.8.1. Audio branch là gì?
 
 Audio branch biến tín hiệu âm thanh thành chuỗi feature theo thời gian. Trong SCALE, audio được biểu diễn bằng **MFCC - Mel-Frequency Cepstral Coefficients**.
 
@@ -648,16 +636,15 @@ MFCC là cách nén phổ âm thanh theo thang Mel, gần với cách tai ngư�
 4. Lấy log năng lượng.
 5. Dùng DCT để tạo cepstral coefficients.
 
-### 6.8.2. Audio giúp gì cho product search?
+### 7.8.2. Audio giúp gì cho product search?
 
 Audio không phải modality mạnh nhất cho mọi sản phẩm, nhưng có thể hữu ích khi:
 
 - Video sản phẩm có lời giới thiệu.
-- Query là voice/audio.
 - Sản phẩm có âm thanh đặc trưng, ví dụ nhạc cụ, thiết bị điện, đồ chơi.
 - Audio transcript có thể bổ sung text signal.
 
-### 6.8.3. Input và output
+### 7.8.3. Input và output
 
 | Thành phần | Mô tả |
 | --- | --- |
@@ -666,7 +653,7 @@ Audio không phải modality mạnh nhất cho mọi sản phẩm, nhưng có th
 | Projection | Linear layer đưa MFCC về hidden size 768. |
 | Audio transformer output | Sequence audio tokens, ví dụ `L_audio x 768`. |
 
-### 6.8.4. Tool đề xuất
+### 7.8.4. Tool đề xuất
 
 | Tool | Nguồn | Vai trò |
 | --- | --- | --- |
@@ -674,9 +661,7 @@ Audio không phải modality mạnh nhất cho mọi sản phẩm, nhưng có th
 | `torchaudio.transforms.MFCC` | Tool ngoài, PyTorch ecosystem. | Tính MFCC trực tiếp bằng tensor pipeline. |
 | `ffmpeg` hoặc `PyAV` | Tool ngoài. | Tách audio track từ video. |
 
-Nếu audio là voice query, nhóm có thể thêm ASR để chuyển speech sang text rồi đưa vào Text Transformer. Đây là hướng mở rộng, không phải thành phần bắt buộc của SCALE gốc.
-
-## 6.9. Concatenate Tokens: nối các modality như thế nào?
+## 7.9. Concatenate Tokens: nối các modality như thế nào?
 
 Sau khi từng encoder tạo token sequence riêng, ta nối chúng thành một sequence chung:
 
@@ -696,9 +681,9 @@ Sau khi từng encoder tạo token sequence riêng, ta nối chúng thành một
 
 Đây là phần implementation cần làm rõ khi code. Nếu thiếu modality, ví dụ query chỉ có image, ta dùng mask để JCT không chú ý vào padding token của modality khác.
 
-## 6.10. Joint Co-Transformer (JCT)
+## 7.10. Joint Co-Transformer (JCT)
 
-### 6.10.1. JCT là gì?
+### 7.10.1. JCT là gì?
 
 JCT là transformer chung nhận sequence token đã nối từ nhiều modality. Nó dùng self-attention để mỗi token có thể "nhìn" các token khác, kể cả token từ modality khác.
 
@@ -709,7 +694,7 @@ Ví dụ:
 - Token video frame cận cảnh logo có thể chú ý tới text brand.
 - Token audio từ lời giới thiệu có thể chú ý tới table attribute.
 
-### 6.10.2. Vì sao JCT quan trọng?
+### 7.10.2. Vì sao JCT quan trọng?
 
 Nếu chỉ encode từng modality riêng rồi average, model khó học quan hệ chi tiết giữa chúng. JCT cho phép cross-modal reasoning:
 
@@ -718,9 +703,9 @@ Nếu chỉ encode từng modality riêng rồi average, model khó học quan h
 - Video bổ sung góc nhìn ảnh không có.
 - Audio/voice bổ sung intent hoặc selling point.
 
-JCT là nơi semantic gap và modal gap được giảm mạnh nhất.
+JCT là nơi semantic gap và việc liên kết thông tin đa phương thức được cải thiện mạnh nhất.
 
-### 6.10.3. Self-attention trong JCT hoạt động thế nào?
+### 7.10.3. Self-attention trong JCT hoạt động thế nào?
 
 Với mỗi token, transformer tạo ba vector `Q`, `K`, `V`:
 
@@ -742,19 +727,11 @@ flowchart TD
     POOL --> EMB["Unified Embedding"]
 ```
 
-### 6.10.4. Output của JCT lấy embedding như thế nào?
+### 7.10.4. Output của JCT lấy embedding như thế nào?
 
-Có ba cách phổ biến:
+Paper sử dụng fused modality features từ JCT cho downstream task nhưng không quy định một pooling rule duy nhất trong phần chính. Pooling rule được chọn cho pipeline retrieval cần được ghi rõ và kiểm chứng bằng ablation.
 
-| Cách pooling | Mô tả | Ghi chú |
-| --- | --- | --- |
-| Global `[CLS]` token | Thêm một token đại diện toàn sample, lấy output token này. | Dễ dùng cho retrieval. |
-| Mean pooling | Trung bình các token hợp lệ sau JCT. | Ổn nếu sequence không có CLS tốt. |
-| Modality-aware pooling | Pool từng modality rồi học trọng số fusion. | Phù hợp nếu muốn giải thích modality contribution. |
-
-Paper nói dùng fused modality features từ JCT. Trong implementation của nhóm, đề xuất dùng global `[CLS]` hoặc mean pooling ở bản đầu, sau đó thử modality-aware pooling nếu cần explainability.
-
-## 6.11. Self-supervised masked tasks
+## 7.11. Self-supervised masked tasks
 
 SCALE dùng các pretext tasks để model học đặc trưng hữu ích ngay cả khi không có label thủ công.
 
@@ -768,7 +745,7 @@ SCALE dùng các pretext tasks để model học đặc trưng hữu ích ngay c
 
 Paper mask 15% input. Với table, mask nguyên entity giúp model học tốt hơn so với mask từng word rời rạc.
 
-## 6.12. Self-harmonized Inter-Modality Contrastive Learning (SIMCL)
+## 7.12. Self-harmonized Inter-Modality Contrastive Learning (SIMCL)
 
 Nếu chỉ có hai modality image-text, ta có thể dùng contrastive learning: image và text của cùng sản phẩm là positive pair, image và text của sản phẩm khác là negative pair. Nhưng với 5 modality, có nhiều cặp: image-text, image-table, image-video, text-table, video-audio, v.v. Không phải cặp nào cũng quan trọng như nhau.
 
@@ -777,6 +754,8 @@ SIMCL học một **modality alignment score matrix** để tự cân bằng:
 - Cặp modality nào align tốt và nhiều thông tin hơn thì trọng số cao hơn.
 - Cặp modality nhiễu hoặc thiếu thông tin thì trọng số thấp hơn.
 - Masked task của từng modality cũng được cân bằng, tránh một modality lấn át toàn bộ training.
+
+Trong paper, alignment score matrix được học như tham số tự do; phần tam giác trên được dùng để weighting các inter-modality contrastive loss, còn phần đường chéo weighting intra-modality masked loss. Vì vậy SIMCL là cơ chế weighting loss, không phải bộ chọn modality động ở inference.
 
 ```mermaid
 flowchart TD
@@ -802,7 +781,7 @@ L_total = weighted_inter_modality_contrastive_loss
 
 Đây là lý do SCALE phù hợp hơn cách fusion đơn giản như concatenate rồi train classifier: nó không chỉ nối dữ liệu, mà còn học mức độ tin cậy/đóng góp giữa các modality.
 
-## 6.13. Embedding extraction
+## 7.13. Embedding extraction
 
 Sau khi train/finetune, ta dùng SCALE để tạo embedding:
 
@@ -829,61 +808,57 @@ Sau khi train/finetune, ta dùng SCALE để tạo embedding:
 
 L2-normalization giúp cosine similarity hoặc inner product ổn định hơn. Shopsy cũng dùng L2-normalization trước khi đưa embedding vào ANN.
 
-## 6.14. Retrieval index: Flat baseline, Faiss HNSW, IVF-PQ và ScaNN
+## 7.14. Retrieval index: Flat baseline, Faiss HNSW và IVF-PQ
 
-Khi xây dựng một hệ thống tìm kiếm ảnh sản phẩm ở quy mô thương mại điện tử, chúng ta phải đối mặt với thách thức lớn về mặt hiệu năng khi danh mục hàng hóa tăng dần lên đến hàng triệu phần tử. Nếu hệ thống vận hành theo cơ chế duyệt cạn (Exhaustive Search) tức là ép ảnh truy vấn phải đối chiếu trực tiếp với từng sản phẩm một trong cơ sở dữ liệu sẽ làm tăng tuyến tính độ trễ truy vấn theo kích thước dữ liệu, đồng thời làm giảm số lượng truy vấn xử lý được trong mỗi giây khiến người dùng phải chờ đợi lâu.
+Tầng retrieval nhận embedding của ảnh query và tìm top-K embedding gần nhất trong gallery product entry. Embedding gallery được tạo offline, lưu cùng `product_id`, ảnh đại diện và metadata; khi truy vấn, hệ thống chỉ tính embedding query rồi gọi index. Thiết kế này tách chi phí feature extraction khỏi latency của retrieval.
 
-Để giải quyết vấn đề này, tầng truy hồi Retrieval Layer cần sử dụng các kỹ thuật tìm kiếm lân cận gần đúng ANN (Approximate Nearest Neighbor). Nhằm đảm bảo tính thực tế, thay vì chỉ gọi tên các giải pháp ANN một cách chung chung, hệ thống sẽ xây dựng một chiến lược cấu trúc tầng index cụ thể và phân chia rõ ràng giữa việc đo lường kiểm thử và khả năng mở rộng quy mô dữ liệu sau này.
+### 7.14.1. Chuẩn hóa vector và exact baseline
 
-Hệ thống truy hồi vận hành dựa trên sự phối hợp giữa các giải pháp cấu trúc dữ liệu, trong đó mỗi thành phần đảm nhận một vai trò cụ thể:
+Trước khi index, query embedding và gallery embedding đều được L2-normalize. Retrieval chính dùng inner product, vì với vector đã chuẩn hóa thứ hạng theo inner product tương đương cosine similarity. `IndexFlatIP` duyệt toàn bộ gallery nên là exact baseline: top-K của nó được đối chiếu với nhãn đánh giá để đo chất lượng representation, đồng thời làm mốc tính recall loss của index ANN. `IndexFlatL2` chỉ dùng để kiểm tra tính nhất quán của metric khi cần, không phải một index triển khai riêng.
 
-**FlatL2 / FlatIP (Exact Baseline):** Hệ thống thực hiện chuẩn hóa vector (L2 Normalization) rồi tính toán khoảng cách Euclidean hoặc tích vô hướng để tìm ra Ground Truth. Bước này giúp đánh giá chính xác năng lực trích xuất đặc trưng của mô hình SCALE mà không bị nhiễu bởi các sai số, từ đó đo lường được các thuật toán gần đúng phía sau đã đánh đổi bao nhiêu % độ chính xác (Recall/Precision loss) để lấy tốc độ.
+### 7.14.2. Faiss HNSW: index chính
 
-**Faiss HNSW (Index mặc định cho Prototype/Demo):** Thuật toán này tổ chức không gian vector thành một cấu trúc đồ thị đa tầng để tối ưu quỹ đạo tìm kiếm. Hệ thống ưu tiên lựa chọn HNSW làm index mặc định trong giai đoạn đầu vì thuật toán đáp ứng các chỉ số về độ phủ và độ trễ, đồng thời không yêu cầu bước huấn luyện index, giúp luồng cập nhật dữ liệu trở nên đơn giản hơn. Các tầng đồ thị phía trên giữ mật độ liên kết thưa thớt để định hướng nhanh vùng không gian, trong khi tầng đáy chứa toàn bộ dữ liệu để thu hẹp phạm vi tìm kiếm cục bộ. Nhờ đặc tính không cần training, hệ thống có thể chèn trực tiếp vector mới vào đồ thị theo thời gian thực mà không cần xây dựng lại toàn bộ cấu trúc index từ đầu.
+Prototype sử dụng `IndexHNSWFlat` với inner product trên embedding đã chuẩn hóa. HNSW không cần train index; mỗi embedding mới có thể được thêm cùng `product_id` qua lớp mapping ID. Ba tham số được tune trên validation set:
 
-**Faiss IVF-PQ / OPQ-PQ (Phương án mở rộng quy mô):** Khi dung lượng dữ liệu lớn và bộ nhớ RAM trở thành bottleneck, hệ thống sẽ kích hoạt giải pháp này. Bằng cách kết hợp danh mục đảo IVF để phân cụm không gian và lượng tử hóa sản phẩm (OPQ/PQ), thuật toán tiến hành chia nhỏ vector và nén thành các mã định danh ngắn, giúp tối ưu dung lượng lưu trữ bộ nhớ. Khi truy vấn, hệ thống tính toán khoảng cách trực tiếp trên các mã định danh đã nén thông qua bảng tra cứu mà không cần giải nén.
+- `M`: số liên kết của mỗi node, ảnh hưởng memory và recall.
+- `efConstruction`: độ rộng tìm kiếm khi xây graph, ảnh hưởng build time và chất lượng graph.
+- `efSearch`: độ rộng tìm kiếm khi query, là núm điều chỉnh chính cho trade-off latency–recall.
 
-**ScaNN (Optional Benchmark):** Giải pháp này từ Google thực hiện tìm kiếm tương đồng thông qua cơ chế lượng tử hóa vector bất đẳng hướng (Anisotropic Vector Quantization). Hệ thống thiết lập ScaNN như một module độc lập không bắt buộc nhằm mục đích thử nghiệm và kiểm chứng khả năng tối ưu QPS trên hạ tầng CPU, dựa trên kết quả thực nghiệm từ kiến trúc hệ thống Shopsy của Flipkart.
+HNSW phù hợp cho demo vì pipeline add vector đơn giản và latency thấp. Tuy nhiên, record bị xóa hoặc thay ảnh không nên chỉnh trực tiếp trong graph: hệ thống đánh dấu `product_id` không còn hiệu lực ở metadata mapping, lọc kết quả trước khi trả về, và rebuild index theo batch khi lượng thay đổi tích lũy vượt ngưỡng đã đặt.
 
-**Các giải pháp bổ trợ (Annoy, Qdrant/Milvus):** Hệ thống có thể ứng dụng Annoy để thử nghiệm nhanh ở quy mô nhỏ dựa trên cấu trúc cây phân tách không gian. Đối với Qdrant hoặc Milvus, các công cụ này sẽ được cân nhắc nếu hệ thống cần tích hợp các dịch vụ hoàn chỉnh có sẵn API và bộ lọc metadata ở cấp độ production, dù không nằm trong trọng tâm tối ưu hóa thuật toán.
+### 7.14.3. IVF-PQ/OPQ-PQ: phương án nén
 
+Khi memory của HNSW không còn phù hợp với kích thước gallery, hệ thống chuyển sang IVF-PQ. IVF phân cụm embedding thành `nlist` cell; khi query chỉ duyệt `nprobe` cell gần nhất. PQ nén mỗi vector thành mã PQ, còn OPQ là phép xoay không gian tùy chọn trước PQ để giảm sai số lượng tử hóa.
 
-|Index|Ưu điểm|Nhược điểm|Khi dùng|
-|-|-|-|-|
-|FlatL2 / FlatIP|Phản ánh đúng khoảng cách toán học thực tế trong không gian không nén, làm mốc chuẩn Exact Baseline để kiểm thử sai số.|Tốc độ xử lý (QPS) giảm tuyến tính khi kích thước danh mục tăng lớn, tiêu tốn nhiều tài nguyên tính toán.|Đánh giá năng lực biểu diễn của không gian embedding do mô hình SCALE tạo ra và đo lường tỷ lệ hao hụt độ chính xác của các thuật toán ANN.|
-|Faiss HNSW|Đạt chỉ số độ phủ cao trên các tập dữ liệu thử nghiệm, không yêu cầu bước huấn luyện index, hỗ trợ triển khai nhanh.|Tốn RAM, cần tune `M`, `efSearch`, `efConstruction`; không tối ưu khi cần xóa vector thường xuyên.|Cấu hình làm index chính cho hệ thống chạy thử nghiệm Prototype/Demo và các bài kiểm tra hiệu năng ban đầu.|
-|Faiss IVF-PQ / OPQ-PQ|Giảm dung lượng bộ nhớ RAM bằng cơ chế nén vector, hỗ trợ mở rộng quy mô khi số lượng phần tử tăng lên.|Bắt buộc phải thực hiện bước huấn luyện trên tập dữ liệu mẫu, có thể giảm một phần precision, cần tune `nlist`, `nprobe`, PQ code size.|Sử dụng khi bộ nhớ vật lý chạm ngưỡng giới hạn bottleneck hoặc khi kích thước danh mục sản phẩm tăng lớn lên quy mô hàng triệu phần tử.|
-|ScaNN|Tối ưu vector similarity search bằng pruning/quantization, đạt chỉ số QPS cao trên hạ tầng CPU.|Quy trình thiết lập môi trường phức tạp, phụ thuộc chặt chẽ vào hệ điều hành và phiên bản thư viện hỗ trợ. Không bắt buộc phải là một dependency cốt lõi của hệ thống.|Sử dụng làm Optional benchmark để thu thập và đối chiếu số liệu hiệu năng với cấu trúc đồ thị của Faiss HNSW.|
-|Annoy|Cấu trúc dữ liệu dựa trên cây chia không gian đơn giản, dễ cài đặt, thời gian nạp index vào bộ nhớ nhanh.|Thời gian xây dựng index (Build time) dài; tốc độ tìm kiếm và độ chính xác bị giới hạn so với HNSW hoặc ScaNN khi kích thước dữ liệu tăng lên.|Phục vụ quá trình hiện thực hóa luồng xử lý cơ bản hoặc xây dựng prototype nhanh ở giai đoạn đầu.|
+IVF-PQ phải được train trên một mẫu gallery đại diện trước khi add toàn bộ vector. Các tham số `nlist`, `nprobe`, số subquantizer `m` và số bit mỗi mã được chọn bằng validation benchmark; cấu hình được chấp nhận khi đạt memory budget và recall loss so với `IndexFlatIP` phù hợp với mục tiêu demo. IVF-PQ không thay thế HNSW trong bản đầu, mà là phương án scale khi benchmark cho thấy HNSW vượt memory budget.
 
-Dựa trên kết quả thực nghiệm từ kiến trúc hệ thống Shopsy của Flipkart với quy mô 3 triệu ảnh sản phẩm, các giải pháp lượng tử hóa và đồ thị như ScaNN và HNSW đạt chỉ số Precision@4 tương đương với FlatL2 nhưng mang lại tốc độ QPS cao hơn nhiều lần. Thống nhất lộ trình triển khai thực nghiệm tầng truy hồi theo thứ tự ưu tiên như sau:
+### 7.14.4. Quy trình benchmark và cập nhật index
 
-- **FlatL2 / FlatIP**: Làm exact baseline để xác định trần chất lượng tối đa của không gian embedding do mô hình SCALE tạo ra.
-- **Faiss HNSW**: Làm retrieval index mặc định cho hệ thống tìm kiếm thời gian thực để chứng minh hiệu năng về latency và recall trên môi trường demo.
-- **Faiss IVF-PQ / OPQ-PQ**: Tiến hành huấn luyện và cấu hình song song để làm phương án dự phòng tối ưu tài nguyên bộ nhớ khi catalog tăng trưởng.
-- **ScaNN**: Triển khai làm module đối soát độc lập để thu thập và so sánh số liệu hiệu năng với Faiss HNSW trên cùng một cấu hình CPU nếu môi trường hỗ trợ tốt.
+Mỗi cấu hình chạy trên cùng gallery, cùng embedding, cùng hardware và cùng tập query. Báo cáo gồm Recall@K so với `IndexFlatIP`, query latency, QPS, build time và memory footprint. Với catalog update, embedding mới được tạo offline; HNSW add tăng dần, còn IVF-PQ add sau khi index đã train. Mỗi lần rebuild phải tạo version mới của index và metadata mapping, kiểm tra trên validation set rồi mới thay thế version đang phục vụ.
 
-## 6.15. Index building pipeline
+| Thành phần | Vai trò trong hệ thống | Điều kiện sử dụng |
+| --- | --- | --- |
+| `IndexFlatIP` | Exact baseline trên vector L2-normalize. | Luôn chạy trên subset/benchmark để đo representation quality và recall loss. |
+| `IndexHNSWFlat` | Index ANN mặc định cho demo. | Dùng khi memory đáp ứng và cần latency thấp. |
+| IVF-PQ/OPQ-PQ | Index ANN nén. | Dùng khi benchmark cho thấy HNSW vượt memory budget. |
+
+## 7.15. Index building pipeline
 
 ```mermaid
 flowchart TD
     C["Catalog Products"] --> E["SCALE Embedding Extraction"]
     E --> N["L2 Normalize"]
-    N --> P["Optional PCA<br/>only if memory/latency requires it"]
-    P --> B["Build Faiss HNSW / IVF-PQ Index"]
-    B --> V["Validate Recall/Precision vs FlatL2/FlatIP"]
+    N --> B["Build Faiss HNSW / IVF-PQ Index"]
+    B --> V["Validate Recall/Precision vs IndexFlatIP"]
     V --> S["Save Index + Metadata Mapping"]
 ```
 
-Nếu embedding dimension lớn và index memory cao, có thể áp dụng PCA giống Shopsy. Với SCALE hidden size 768, PCA cần được kiểm tra thực nghiệm: chỉ giữ nếu giảm memory/latency mà không làm mất nhiều Precision@K.
-
-## 6.16. Training workflow
+## 7.16. Training workflow
 
 ```mermaid
 flowchart TD
     D["M5Product Training Split"] --> A["Data Loader<br/>5 modalities + missing masks"]
-    A --> AUG["Image/Query Augmentation"]
-    AUG --> ENC["Modality Encoders"]
+    A --> ENC["Modality Encoders"]
     ENC --> CAT["Concatenate Tokens"]
     CAT --> JCT["Joint Co-Transformer"]
     JCT --> MT["Masked Tasks"]
@@ -901,7 +876,9 @@ Training chia thành:
 - **Finetuning**: dùng subset retrieval/classification nếu có label category/instance.
 - **Embedding export**: freeze model tốt nhất và export gallery/query embedding.
 
-## 6.17. Testing and evaluation workflow
+Để tái lập paper, cấu hình tham chiếu là batch size 64, 5 epochs, Adam với warm-up learning rate `1e-4`; chỉ thay đổi khi giới hạn GPU hoặc subset dữ liệu buộc phải điều chỉnh. Mọi thay đổi cấu hình của nhóm phải được ghi riêng trong thực nghiệm.
+
+## 7.17. Testing and evaluation workflow
 
 ```mermaid
 flowchart TD
@@ -917,7 +894,7 @@ flowchart TD
 
 Model quality được đo bằng retrieval metrics. System quality được đo bằng latency, QPS, memory footprint và index build/update time.
 
-## 6.18. Serving design
+## 7.18. Serving design
 
 Online serving gồm:
 
@@ -945,35 +922,127 @@ sequenceDiagram
     API-->>U: Ranked product images
 ```
 
-## 6.19. Rủi ro và hướng xử lý
+## 7.19. Rủi ro và hướng xử lý
 
 | Rủi ro | Nguyên nhân | Hướng xử lý |
 | --- | --- | --- |
-| Query chỉ có image nhưng model train nhiều modality | Modal mismatch giữa train và serve. | Missing modality mask/zero imputation, train với random modality dropout. |
+| Query chỉ có image nhưng model train nhiều modality | Modal mismatch giữa train và serve. | Missing modality mask/zero imputation theo SCALE. |
 | Semantic sai dù ảnh giống | Embedding quá thiên về texture. | Tăng trọng số text/table, finetune bằng category/instance labels. |
-| Approximate index giảm recall | Approximation/quantization quá mạnh. | So sánh với FlatL2/FlatIP, tune Faiss HNSW hoặc IVF-PQ, dùng rerank top-N bằng exact distance. |
+| Approximate index giảm recall | Approximation/quantization quá mạnh. | So sánh với `IndexFlatIP`, tune Faiss HNSW hoặc IVF-PQ, dùng rerank top-N bằng exact distance. |
 | Latency cao | SCALE inference nặng. | Cache embedding, batch offline, dùng model distillation/ONNX/TensorRT nếu cần. |
 | Catalog update | Product mới cần embedding và index update. | Incremental index hoặc rebuild định kỳ theo batch. |
 
-## 6.20. Summary
+## 7.20. Phương pháp giải quyết các thách thức thực hiện
+
+Methodology được thiết kế để xử lý trực tiếp các gap ở Mục 02 và các thách thức thực hiện ở Mục 05, thay vì chỉ tối ưu similarity giữa hai ảnh. Mỗi thành phần giải quyết một phần rủi ro; vì vậy, hiệu quả cuối cùng cần được đánh giá đồng thời theo representation quality, retrieval quality và system quality.
+
+| Thách thức | Thành phần xử lý chính | Cơ chế và giới hạn |
+| --- | --- | --- |
+| Domain gap giữa query và catalog | Image preprocessing, region features và multi-view video | Region feature và nhiều view giảm ảnh hưởng của background. Hiệu quả vẫn phụ thuộc chất lượng ảnh query và độ đa dạng của catalog. |
+| Fine-grained attributes và crop query | Image regions, title/table encoder, JCT và rerank top-N | JCT liên kết chi tiết ảnh với brand, material, color hoặc size trong metadata. Với query quá nhỏ hoặc bị che khuất, hệ thống vẫn có thể cần object grounding chuyên biệt. |
+| Missing modality và metadata noise | Modality-specific encoder, attention mask, zero imputation và SIMCL | Query/candidate có modality thiếu vẫn có thể được encode; SIMCL điều chỉnh đóng góp giữa modality. Zero imputation không tự tạo thông tin còn thiếu, nên metadata nhiễu vẫn là rủi ro. |
+| Model gap của region extractor | Region recall benchmark và failure logging theo category | Detector có thể bỏ sót object ngoài distribution; cần đo riêng các failure case này trước khi kết luận về retrieval. |
+| Metadata noise | MEM, cross-modal contrastive learning và validation metadata | Key-value structure giúp phân biệt vai trò của thuộc tính; cross-modal loss giảm phụ thuộc vào một nguồn. Cần tiền xử lý và kiểm tra metadata trước khi index. |
+| Quy mô, latency và catalog update | Embedding offline, Flat baseline, Faiss HNSW/IVF-PQ và metadata mapping | Flat tách lỗi representation khỏi lỗi ANN; HNSW phục vụ prototype latency thấp; IVF-PQ giảm memory khi catalog lớn. Update catalog cần quy trình add/rebuild và benchmark định kỳ. |
+
+Nhờ cách phân tách này, kết quả thực nghiệm có thể trả lời rõ ba câu hỏi: embedding có phân biệt đúng sản phẩm không, ANN đã đánh đổi bao nhiêu chất lượng để đổi lấy tốc độ, và nhóm query nào vẫn là failure case cần cải thiện.
+
+## 7.21. Summary
 
 SCALE + Faiss-based retrieval phù hợp với đề tài vì SCALE học representation chung cho 5 modality và tự cân bằng đóng góp giữa các modality, còn Flat/HNSW/IVF-PQ biến embedding đó thành hệ thống truy hồi có thể đo đạc và mở rộng. Điểm cần nhấn mạnh là mỗi block trong kiến trúc đều có vai trò cụ thể: image branch học vùng sản phẩm, text branch học mô tả, table branch học thuộc tính có cấu trúc, video branch học góc nhìn theo thời gian, audio branch học tín hiệu âm thanh/voice, JCT học quan hệ giữa tất cả token, SIMCL học cách cân bằng modality, và Faiss HNSW/IVF-PQ phục vụ truy hồi top-K ở quy mô lớn.
 
 ---
 
-# 07. Expected Results and Evaluation
+# 08. Cải thiện đề xuất
 
-## 7.1. Kết quả mong muốn
+Mục này chỉ trình bày hai cải tiến ở tầng retrieval index: exact re-ranking và attribute-aware re-ranking. Cả hai đều chạy sau Faiss HNSW, nên không thay đổi kiến trúc SCALE hay cách tạo embedding.
+
+| Cải tiến | Challenge/gap được xử lý | Mục đích trực tiếp | Chỉ số kiểm chứng |
+| --- | --- | --- | --- |
+| Exact re-ranking | Sai số xấp xỉ của ANN và sai thứ tự giữa các candidate có embedding gần nhau. | Sắp xếp lại Top-N bằng điểm exact để tăng chất lượng Top-K. | Precision@K, Recall@K và latency trước/sau re-ranking. |
+| Attribute-aware re-ranking | Semantic gap ở thuộc tính quyết định tính tương thích: model, size, compatibility. | Ưu tiên candidate thỏa thuộc tính query, tránh kết quả nhìn giống nhưng dùng sai. | Precision@K trên query có text/table; kiểm tra metric chung không giảm. |
+
+## 8.1. Flow cơ sở và flow sau cải thiện
+
+Flow cơ sở trả trực tiếp Top-K từ HNSW. Flow mới lấy Top-N lớn hơn, sắp xếp lại bằng điểm exact, sau đó chỉ dùng thuộc tính nếu query có text/table đáng tin cậy.
+
+```mermaid
+flowchart LR
+    Q["Ảnh query"] --> E["SCALE tạo embedding"]
+    G["Gallery embeddings"] --> H["Faiss HNSW"]
+    E --> H
+    H --> K["Trả Top-K"]
+```
+
+```mermaid
+flowchart LR
+    Q["Ảnh query + text/table tùy chọn"] --> E["SCALE tạo embedding"]
+    G["Gallery embeddings + metadata"] --> H["Faiss HNSW lấy Top-N"]
+    E --> H
+    H --> X["Exact re-ranking trên Top-N"]
+    X --> A{"Có text/table đáng tin cậy?"}
+    A -- "Không" --> K["Trả Top-K"]
+    A -- "Có" --> B["Attribute-aware re-ranking"]
+    B --> K
+```
+
+## 8.2. Exact re-ranking
+
+**Vấn đề:** HNSW ưu tiên tốc độ, nên có thể xếp sai thứ tự các candidate có điểm gần nhau.
+
+**Cách làm:** HNSW lấy Top-N, ví dụ 100 candidate. Hệ thống tính lại inner product chính xác giữa embedding query và từng candidate trong Top-N, rồi sắp xếp lại trước khi trả Top-K.
+
+```text
+HNSW lấy Top-N -> tính exact inner product trên Top-N -> trả Top-K
+```
+
+**Challenge được giải quyết:** sai số ANN trong Mục 5.5. HNSW ưu tiên tốc độ nên có thể cho score xấp xỉ và sai thứ tự ở nhóm candidate sát nhau.
+
+**Mục đích:** cải thiện thứ tự của các kết quả đầu mà không cần exact search trên toàn bộ gallery. Vì exact score chỉ tính trên Top-N nhỏ, chi phí tăng thêm được kiểm soát.
+
+**Giới hạn:** chỉ sắp xếp lại candidate đã thuộc Top-N; không thể khôi phục sản phẩm mà HNSW không trả về.
+
+**Đánh giá:** so sánh Precision@K, Recall@K và latency trước/sau re-ranking; chọn `N` và `efSearch` bằng validation set.
+
+## 8.3. Attribute-aware re-ranking
+
+**Vấn đề:** hai sản phẩm có thể giống ảnh nhưng không tương thích về mặt thương mại, ví dụ ốp lưng iPhone 14 và iPhone 15.
+
+**Cách làm:** chỉ khi query có text hoặc bảng thuộc tính đáng tin cậy, hệ thống kiểm tra metadata của candidate trong Top-N sau exact re-ranking. Candidate khớp model, size hoặc compatibility được ưu tiên cao hơn; màu sắc/texture chỉ là thuộc tính phụ.
+
+**Challenge được giải quyết:** semantic gap và nhiễu metadata ở Mục 5.3–5.4. Visual similarity không đủ để kiểm tra các ràng buộc như đúng model máy, kích thước hoặc compatibility.
+
+**Mục đích:** giảm semantic gap và tránh kết quả “nhìn giống nhưng dùng sai”. Metadata chỉ được dùng để điều chỉnh thứ tự trong Top-N, không thay thế score embedding.
+
+**Giới hạn:** không lấy metadata của Top-1 làm nhãn cho query. Nếu Top-1 sai, cách này sẽ khuếch đại lỗi. Khi query chỉ có ảnh, hệ thống dừng ở exact re-ranking.
+
+**Đánh giá:** đo Precision@K trên tập query có text/table và kiểm tra rằng metric chung không giảm.
+
+## 8.4. Thứ tự triển khai
+
+1. Chạy baseline SCALE + `IndexFlatIP` + HNSW.
+2. Thêm exact re-ranking và chọn `N`, `efSearch` theo validation set.
+3. Chỉ bật attribute-aware re-ranking cho query có text/table đủ tin cậy.
+
+Hai cải tiến chỉ được giữ khi metric tốt hơn baseline tương ứng và latency vẫn đáp ứng yêu cầu demo.
+
+---
+
+# 09. Expected Results and Evaluation
+
+## 9.1. Kết quả mong muốn
 
 Hệ thống kỳ vọng đạt được:
 
-- Truy hồi top-K ảnh sản phẩm tương đồng với query đa phương thức.
+- Truy hồi top-K product entry phù hợp với ảnh query, kèm metadata và ảnh đại diện.
 - Embedding thể hiện tốt cả visual similarity và semantic similarity.
-- Faiss HNSW/IVF-PQ cho tốc độ truy hồi nhanh hơn exhaustive search đáng kể, trong khi FlatL2/FlatIP giữ vai trò exact baseline.
+- Faiss HNSW/IVF-PQ cho tốc độ truy hồi nhanh hơn exhaustive search đáng kể, trong khi `IndexFlatIP` giữ vai trò exact baseline.
 - Khả năng chống nhiễu với query bị crop, compression, rotation hoặc watermark.
 - Pipeline có thể mở rộng cho catalog lớn và cập nhật sản phẩm định kỳ.
 
-## 7.2. Tiêu chí đánh giá chất lượng mô hình
+## 9.2. Tiêu chí đánh giá chất lượng mô hình
+
+Paper M5Product/SCALE báo cáo retrieval bằng mAP và Precision. Recall@K, NDCG@K, Category Match@K và các metric hệ thống dưới đây là protocol đánh giá do nhóm bổ sung cho pipeline ảnh-query + Faiss; chúng không phải cấu hình downstream gốc của paper.
 
 | Metric | Ý nghĩa | Lý do dùng |
 | --- | --- | --- |
@@ -981,10 +1050,10 @@ Hệ thống kỳ vọng đạt được:
 | Recall@K | Tỷ lệ ground-truth được tìm thấy trong top-K. | Đo khả năng không bỏ sót sản phẩm đúng. |
 | mAP@K | Trung bình average precision theo nhiều query. | Đánh giá cả đúng/sai và thứ tự ranking. |
 | NDCG@K | Đánh giá ranking khi có nhiều mức relevance. | Hữu ích nếu có label same/similar/irrelevant. |
-| Category Accuracy | Tỷ lệ kết quả đúng category. | Đo semantic alignment. |
-| Robustness by augmentation | Precision@K theo từng loại noise. | Kiểm tra sensory gap. |
+| Category Match@K | Tỷ lệ query có ít nhất một kết quả cùng category trong top-K. | Chỉ số bổ sung cho semantic discovery; không thay thế SKU/instance-level metric. |
+| Robustness by noise slice | Precision@K theo từng loại noise. | Kiểm tra sensory gap. |
 
-## 7.3. Tiêu chí đánh giá hệ thống retrieval
+## 9.3. Tiêu chí đánh giá hệ thống retrieval
 
 | Metric | Ý nghĩa |
 | --- | --- |
@@ -992,30 +1061,30 @@ Hệ thống kỳ vọng đạt được:
 | QPS | Số query xử lý mỗi giây. |
 | Index build time | Thời gian tạo index từ gallery embeddings. |
 | Memory footprint | Bộ nhớ index cần dùng. |
-| Recall loss vs FlatL2/FlatIP | Mức giảm chất lượng khi dùng HNSW/IVF-PQ thay exact search. |
+| Recall loss vs `IndexFlatIP` | Mức giảm chất lượng khi dùng HNSW/IVF-PQ thay exact search. |
 | Update cost | Chi phí thêm sản phẩm mới vào index. |
 
-## 7.4. Tiêu chí đánh giá sản phẩm so với sản phẩm khác
+## 9.4. Tiêu chí đánh giá sản phẩm so với sản phẩm khác
 
 | Tiêu chí | Sản phẩm của chúng tôi | Baseline/sản phẩm khác |
 | --- | --- | --- |
-| Query modality | Image, text, video, audio, table. | Thường chỉ image hoặc image+text. |
+| Query modality | Image; có thể kèm text/table ngắn. Video/audio dùng như modality của catalog khi dữ liệu có sẵn. | Thường chỉ image hoặc image+text. |
 | Semantic awareness | Dựa trên SCALE multi-modal embedding. | I2I thuần dễ thiên texture/shape. |
-| Large-scale retrieval | FlatL2/FlatIP baseline, Faiss HNSW index chính, IVF-PQ khi cần giảm memory. | Exact search chậm, prototype index thiếu benchmark. |
-| Robustness | Có augmentation và missing modality handling. | Dễ giảm chất lượng khi query nhiễu. |
+| Large-scale retrieval | `IndexFlatIP` baseline, Faiss HNSW index chính, IVF-PQ khi cần giảm memory. | Exact search chậm, prototype index thiếu benchmark. |
+| Robustness | Báo cáo theo từng nhóm query nhiễu và missing modality. | Dễ giảm chất lượng khi query nhiễu. |
 | Evaluation | Kết hợp model metrics và system metrics. | Nhiều demo chỉ đánh giá qualitative. |
-| Explainability | Có thể phân tích theo modality contribution và failure cases. | Khó biết sai do image, text hay index. |
+| Failure analysis | Phân tích theo nhiễu ảnh, category, missing metadata, region proposal và loại index. | Nhiều demo chỉ đánh giá qualitative. |
 
-## 7.5. Target kỳ vọng ban đầu
+## 9.5. Target kỳ vọng ban đầu
 
 Các target này là mục tiêu thực nghiệm, không phải cam kết cuối:
 
 - Precision@5 và Recall@10 cao hơn baseline image-only.
-- HNSW/IVF-PQ recall so với FlatL2/FlatIP giữ ở mức chấp nhận được, ưu tiên mất ít hơn 3-5 điểm phần trăm.
+- Chọn cấu hình HNSW/IVF-PQ có recall loss so với `IndexFlatIP` phù hợp với latency và memory budget đã công bố.
 - Query latency đủ thấp cho demo interactive.
-- Faiss HNSW có QPS cao hơn FlatL2/FlatIP rõ rệt trên cùng tập gallery; ScaNN chỉ là benchmark bổ sung nếu môi trường hỗ trợ.
+- Benchmark `IndexFlatIP`, HNSW và IVF-PQ trên cùng gallery, cùng hardware và nhiều quy mô catalog.
 
-## 7.6. Failure analysis dự kiến
+## 9.6. Failure analysis dự kiến
 
 Hệ thống sẽ ghi nhận các nhóm lỗi:
 
@@ -1025,13 +1094,13 @@ Hệ thống sẽ ghi nhận các nhóm lỗi:
 - Product mới hoặc long-tail category chưa học tốt.
 - Kết quả đúng semantic nhưng ảnh không giống trực quan.
 
-Các lỗi này sẽ được dùng để điều chỉnh augmentation, finetuning data, modality weighting và index/rerank strategy.
+Các lỗi này sẽ được dùng để phân tích giới hạn của representation, modality và index/rerank strategy.
 
 ---
 
-# 08. Execution Plan
+# 10. Execution Plan
 
-## 8.1. Thời gian thực hiện
+## 10.1. Thời gian thực hiện
 
 Kế hoạch kéo dài 2 tháng, chia thành 8 tuần.
 
@@ -1039,45 +1108,45 @@ Kế hoạch kéo dài 2 tháng, chia thành 8 tuần.
 | --- | --- | --- |
 | Week 1 | Đọc paper, chốt problem statement, chuẩn hóa proposal, khảo sát dataset M5Product. | Proposal hoàn chỉnh, danh sách requirement và metric. |
 | Week 2 | Chuẩn bị data loader, preprocess image/text/table/video/audio, thiết kế schema metadata. | Pipeline đọc dữ liệu và kiểm tra sample. |
-| Week 3 | Cài đặt hoặc tái hiện SCALE feature extraction; chạy thử trên subset nhỏ. | Embedding extraction chạy được trên subset. |
-| Week 4 | Pretrain/finetune thử nghiệm, thêm augmentation cho image query. | Checkpoint đầu tiên và log training. |
-| Week 5 | Export gallery/query embeddings, xây FlatL2/FlatIP baseline và Faiss HNSW index. | Index đầu tiên, kết quả Precision@K/Recall@K baseline. |
-| Week 6 | Tune retrieval index, so sánh FlatL2/FlatIP, Faiss HNSW, Faiss IVF-PQ/OPQ-PQ và ScaNN nếu có. | Bảng trade-off Precision, Recall, QPS, memory, build time. |
-| Week 7 | Xây demo/API retrieval, visualize top-K result, thêm logging failure cases. | Demo end-to-end. |
+| Week 3 | Cài đặt hoặc tái hiện SCALE feature extraction; chạy thử trên subset nhỏ và kiểm tra region proposal. | Embedding extraction chạy được; có thống kê region recall/region failure cơ bản. |
+| Week 4 | Pretrain/finetune thử nghiệm và tạo failure slice cho ảnh nhiễu/nhiều object. | Checkpoint đầu tiên, log training và bộ kiểm tra robustness/region failure. |
+| Week 5 | Export gallery/query embeddings, xây `IndexFlatIP` baseline và Faiss HNSW index. | Index đầu tiên, kết quả Precision@K/Recall@K baseline. |
+| Week 6 | Tune Faiss HNSW và Faiss IVF-PQ/OPQ-PQ với `IndexFlatIP` làm exact baseline; thử exact re-ranking trên Top-N. | Bảng Recall@K, latency, QPS, memory, build time và ablation re-ranking. |
+| Week 7 | Xây demo/API retrieval, visualize top-K result, thêm logging failure cases và attribute-aware re-ranking cho query có context đáng tin cậy. | Demo end-to-end và báo cáo cải thiện theo failure slice. |
 | Week 8 | Tổng hợp kết quả, viết báo cáo, hoàn thiện slide/demo, phân tích hạn chế. | Final report, demo, evaluation table. |
 
-## 8.2. Milestones
+## 10.2. Milestones
 
 | Milestone | Deadline | Deliverable |
 | --- | --- | --- |
 | M1 | Cuối Week 1 | Proposal và scope hoàn chỉnh. |
 | M2 | Cuối Week 3 | Data + feature extraction prototype. |
-| M3 | Cuối Week 5 | Retrieval baseline với FlatL2/FlatIP và Faiss HNSW. |
-| M4 | Cuối Week 7 | Demo end-to-end. |
+| M3 | Cuối Week 5 | Retrieval baseline với `IndexFlatIP` và Faiss HNSW. |
+| M4 | Cuối Week 7 | Demo end-to-end và ablation cho các cải thiện đã chọn. |
 | M5 | Cuối Week 8 | Báo cáo cuối và kết quả đánh giá. |
 
-## 8.3. Phân công dự kiến
+## 10.3. Phân công dự kiến
 
 | Thành viên | Trọng tâm |
 | --- | --- |
 | Trần Hải Đức | Feature extraction, SCALE, preprocessing, evaluation metrics. |
 | Trần Hoàng Nam | Faiss HNSW/IVF-PQ index, API/demo retrieval, benchmark latency/QPS, report visualization. |
 
-## 8.4. Rủi ro kế hoạch
+## 10.4. Rủi ro kế hoạch
 
 | Rủi ro | Ảnh hưởng | Phương án dự phòng |
 | --- | --- | --- |
 | M5Product quá lớn hoặc khó tải đầy đủ | Chậm training và storage cao. | Dùng subset theo category, ưu tiên image/text/table trước. |
 | GPU hạn chế | Không train full SCALE được. | Dùng pretrained/finetune nhỏ, freeze backbone, giảm batch size. |
-| ScaNN không tương thích môi trường | Không benchmark được ScaNN. | Dùng Faiss HNSW làm chính và Faiss IVF-PQ khi cần giảm memory. |
 | Label retrieval không đủ | Metric yếu. | Dùng category label, instance label hoặc human-labeled subset nhỏ. |
-| Demo latency cao | Trải nghiệm demo kém. | Cache embedding, batch offline, giảm dimension/PCA. |
+| Detector bỏ sót sản phẩm long-tail | Embedding không nhận được đúng region cần truy hồi. | Đo region recall theo category và ghi nhận failure case. |
+| Demo latency cao | Trải nghiệm demo kém. | Cache embedding, batch offline và tối ưu batch size. |
 
 ---
 
-# 09. Appendix and References
+# 11. Appendix and References
 
-## 9.1. References từ local papers
+## 11.1. References từ local papers
 
 1. N. Venkatesan, M. Suresh, Vethamuthu Richard Paul, Diganta Kumar Das, P. Vijayakumar. **The Rise of Visual Search in E-Commerce: Leveraging AI to Redefine Product Discovery**. Journal of Marketing & Social Research, 2025.
 2. Xiao Dong, Xunlin Zhan, Yangxin Wu, Yunchao Wei, Michael C. Kampffmeyer, Xiao-Yong Wei, Minlong Lu, Yaowei Wang, Xiaodan Liang. **M5Product: Self-harmonized Contrastive Learning for E-commercial Multi-modal Pretraining**. 2022.
@@ -1086,7 +1155,7 @@ Kế hoạch kéo dài 2 tháng, chia thành 8 tuần.
 5. Hao Jiang, Haoxiang Zhang, Qingshan Hou, Chaofeng Chen, Weisi Lin, Jingchang Zhang, Annan Wang. **MRSE: An Efficient Multi-modality Retrieval System for Large Scale E-commerce**.
 6. Peng Yuan, Bingyin Mei, Hui Zhang. **FashionMV: Product-Level Composed Image Retrieval with Multi-View Fashion Data**. arXiv:2604.10297, 2026.
 
-## 9.2. References được trích trong methodology
+## 11.2. References được trích trong methodology
 
 7. Shaoqing Ren, Kaiming He, Ross Girshick, Jian Sun. **Faster R-CNN: Towards Real-Time Object Detection with Region Proposal Networks**. IEEE TPAMI, 2017.
 8. Kaiming He, Xiangyu Zhang, Shaoqing Ren, Jian Sun. **Deep Residual Learning for Image Recognition**. CVPR, 2016.
@@ -1099,7 +1168,7 @@ Kế hoạch kéo dài 2 tháng, chia thành 8 tuần.
 15. Jeff Johnson, Matthijs Douze, Herve Jegou. **Billion-scale Similarity Search with GPUs**. IEEE Transactions on Big Data, 2019.
 16. Herve Jegou, Matthijs Douze, Cordelia Schmid. **Product Quantization for Nearest Neighbor Search**. IEEE TPAMI, 2011.
 
-## 9.3. Tool/library references
+## 11.3. Tool/library references
 
 17. Meta AI. **Faiss Documentation**. https://faiss.ai/
 18. Meta AI. **Faiss Guidelines to Choose an Index**. https://github.com/facebookresearch/faiss/wiki/Guidelines-to-choose-an-index
@@ -1117,14 +1186,20 @@ Kế hoạch kéo dài 2 tháng, chia thành 8 tuần.
 30. Pandas Contributors. **pandas Documentation**. https://pandas.pydata.org/docs/
 31. Ross Wightman. **timm: PyTorch Image Models**. https://github.com/huggingface/pytorch-image-models
 
-## 9.4. Paper references for tools and model components
+## 11.4. Paper references for tools and model components
 
 32. Peter Anderson, Xiaodong He, Chris Buehler, Damien Teney, Mark Johnson, Stephen Gould, Lei Zhang. **Bottom-Up and Top-Down Attention for Image Captioning and Visual Question Answering**. CVPR, 2018.
 33. Ranjay Krishna et al. **Visual Genome: Connecting Language and Vision Using Crowdsourced Dense Image Annotations**. International Journal of Computer Vision, 2017.
 34. Ashish Vaswani et al. **Attention Is All You Need**. NeurIPS, 2017.
 35. Steven Davis, Paul Mermelstein. **Comparison of Parametric Representations for Monosyllabic Word Recognition in Continuously Spoken Sentences**. IEEE Transactions on Acoustics, Speech, and Signal Processing, 1980.
 
-## 9.5. Appendix: ký hiệu
+## 11.5. References cho các thách thức thực hiện
+
+36. Arnon Dagan, Ido Guy, Slava Novgorodov. **Shop by image: characterizing visual search in e-commerce**. *Information Retrieval Journal*, 26, Article 2, 2023. https://doi.org/10.1007/s10791-023-09418-1
+37. Google Cloud. **Vision API Product Search: General tips** (tài liệu triển khai; Product Search đang ở maintenance mode). https://cloud.google.com/vision/product-search/docs/general-tips
+38. **TIGER-FG: Text-Guided Implicit Fine-Grained Grounding for E-commerce Retrieval**. arXiv:2605.18434, 2026. https://arxiv.org/html/2605.18434v1
+
+## 11.6. Appendix: ký hiệu
 
 | Ký hiệu | Ý nghĩa |
 | --- | --- |

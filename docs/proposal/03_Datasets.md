@@ -37,7 +37,7 @@ Bài báo M5Product mô tả training set gồm **4,423,160 samples** từ **3,5
 
 ## 3.5. Vì sao M5Product phù hợp với đề tài?
 
-- Có đủ 5 loại input đúng với problem statement: image, text, video, audio, information table.
+- Có đủ 5 modality cho product entry trong catalog: image, text, video, audio và information table.
 - Có dữ liệu lớn để học embedding robust.
 - Có missing modality, giúp kiểm tra khả năng vận hành khi catalog không đầy đủ.
 - Có category đa dạng hơn các dataset thời trang hẹp miền.
@@ -49,7 +49,7 @@ Chúng tôi dự kiến dùng M5Product theo ba pha:
 
 1. **Pretraining/finetuning feature extractor**: học embedding chung bằng SCALE.
 2. **Build gallery embedding**: trích xuất embedding cho ảnh sản phẩm trong catalog.
-3. **Evaluate retrieval**: dùng query set để truy hồi top-K qua FlatL2/FlatIP baseline và Faiss HNSW/IVF-PQ index, sau đó đo mAP@K, Precision@K, Recall@K.
+3. **Evaluate retrieval**: dùng query set để truy hồi top-K qua `IndexFlatIP` exact baseline, Faiss HNSW và IVF-PQ, sau đó đo mAP@K, Precision@K, Recall@K.
 
 ```mermaid
 flowchart LR

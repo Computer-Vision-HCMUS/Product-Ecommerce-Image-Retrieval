@@ -35,7 +35,9 @@ E-commerce catalog thường có thuộc tính không đầy đủ. Sản phẩm
 | Sensory Gap | Khác biệt giữa ảnh catalog đẹp và ảnh query ngoài đời: ánh sáng, góc chụp, crop, compression. | Làm embedding lệch dù là cùng sản phẩm. |
 | Semantic Gap | Đặc trưng pixel giống nhau nhưng category/intent khác nhau. | Trả về sản phẩm nhìn giống nhưng không đúng nhu cầu mua. |
 | Context-Query Gap | Query của người dùng thiếu ngữ cảnh hoặc có ngữ cảnh khác catalog. | Khó hiểu người dùng muốn cùng sản phẩm, cùng style hay cùng chức năng. |
-| Modal Gap | Query và catalog có modality khác nhau: ảnh query nhưng catalog có text/table/video/audio. | Cần học không gian chung để so sánh cross-modal. |
+| Model Gap | Khả năng nhận biết/đề xuất vùng của model không bao quát mọi loại sản phẩm, thuộc tính và bối cảnh trong ảnh thực tế. | Có thể bỏ sót object hoặc lấy sai region trước khi bước embedding và retrieval diễn ra. |
+
+**Model Gap** khác với việc catalog có nhiều modality. Đây là khoảng cách giữa phạm vi object/region mà mô hình đã học và phạm vi sản phẩm xuất hiện khi người dùng truy vấn. Ví dụ, detector kiểu YOLO phụ thuộc vào các class và phân bố dữ liệu huấn luyện; do đó không nên giả định nó sẽ phát hiện đúng mọi sản phẩm mới hoặc long-tail. Với đề tài này, gap được theo dõi bằng region recall và failure analysis, không được xem là một cải tiến bổ sung của pipeline.
 
 ## 2.4. Quy trình visual search điển hình
 

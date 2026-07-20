@@ -20,6 +20,6 @@
 
 ## Scope
 
-Đề tài tập trung xây dựng một hệ thống tìm kiếm sản phẩm trong thương mại điện tử dựa trên truy vấn đa phương thức. Hệ thống nhận query dưới dạng hình ảnh, văn bản, video, audio hoặc bảng thông tin sản phẩm; sau đó dùng SCALE để tạo embedding, dùng FlatL2/FlatIP làm exact baseline, dùng Faiss HNSW làm index chính và trả về danh sách top-K ảnh sản phẩm tương đồng nhất trong catalog.
+Đề tài tập trung xây dựng hệ thống tìm kiếm sản phẩm trong thương mại điện tử với **ảnh là query chính**. Text hoặc bảng thuộc tính ngắn có thể được dùng làm ngữ cảnh bổ sung khi có sẵn. Mỗi product entry trong catalog có thể chứa image, text, table, video và audio; SCALE tạo embedding cho entry, `IndexFlatIP` là exact baseline và Faiss HNSW là index chính. Hệ thống trả về top-K product entry kèm ảnh đại diện và metadata.
 
 Proposal này mô tả động lực, đặc trưng dữ liệu product e-commerce image, dataset M5Product, problem statement, related works, methodology dự kiến, tiêu chí đánh giá, kế hoạch thực hiện và danh mục tài liệu tham khảo.
