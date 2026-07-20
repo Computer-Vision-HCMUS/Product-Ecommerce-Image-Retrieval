@@ -8,7 +8,7 @@ Mục tiêu là xây dựng hệ thống retrieval cho e-commerce: với catalog
 
 | Thành phần | Mô tả |
 | --- | --- |
-| **Input** | **Catalog D(n)**: n product entry, mỗi entry có ảnh đại diện và metadata/modality sẵn có.<br>**Query**: ảnh; có thể kèm text hoặc bảng thuộc tính ngắn. |
+| **Input** | **Catalog D(n)**: n product entry, mỗi entry có ảnh đại diện và metadata/modality sẵn có.<br>**Query**: một ảnh có chứa sản phẩm cần tìm; có thể kèm text hoặc bảng thuộc tính ngắn. |
 | **Output** | Danh sách top-K product entry phù hợp, kèm ảnh đại diện và metadata. |
 
 Ký hiệu:
@@ -24,6 +24,17 @@ Bài toán:
 ```text
 TopK(q, D) = arg top-K_{x_i in D} sim(f(q), f(x_i))
 ```
+
+### 4.2.1. Ảnh query là gì?
+
+`q_img` là ảnh do người dùng cung cấp, trong đó sản phẩm cần tìm xuất hiện toàn bộ hoặc một phần. Ảnh query có thể thuộc một trong các tình huống sau:
+
+- **Ảnh chụp thực tế:** người dùng chụp sản phẩm ở nhà, ngoài trời hoặc trong cửa hàng; ảnh có thể thiếu sáng, nghiêng, bị che một phần hoặc có background phức tạp.
+- **Ảnh từ media trực tuyến:** ảnh/screenshot lấy từ mạng xã hội, video, quảng cáo hoặc website; ảnh có thể bị nén, watermark, crop hoặc chứa text overlay.
+- **Ảnh sản phẩm đã crop:** người dùng cắt riêng chiếc túi, đôi giày hoặc món đồ cần tìm từ một ảnh có nhiều object.
+- **Ảnh catalog:** người dùng lưu lại ảnh sản phẩm từ một sàn thương mại điện tử khác; trường hợp này thường sạch hơn nhưng có thể khác góc chụp so với catalog của hệ thống.
+
+Ảnh query không bắt buộc là ảnh studio và không cần trùng chính xác với ảnh catalog. Điều kiện tối thiểu là sản phẩm hoặc chi tiết nhận diện quan trọng của sản phẩm phải nhìn thấy được. Video/audio trong M5Product được dùng để làm giàu product entry ở catalog, không phải input query chính của proposal.
 
 ## 4.3. Yêu cầu hệ thống
 

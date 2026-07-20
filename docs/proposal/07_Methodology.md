@@ -551,17 +551,49 @@ sequenceDiagram
 
 ## 7.20. Phương pháp giải quyết các thách thức thực hiện
 
-Methodology không tuyên bố loại bỏ hoàn toàn mọi gap ở Mục 02/Mục 05. SCALE và M5Product chủ yếu cải thiện representation; Faiss giải quyết ràng buộc latency ở catalog lớn; hai re-ranking ở Mục 08 chỉ điều chỉnh thứ tự kết quả. Vì vậy, mỗi gap cần được gắn với cơ chế phù hợp và metric riêng.
+Mỗi thách thức được xử lý ở một tầng khác nhau. SCALE và M5Product giúp model tạo embedding tốt hơn; Faiss giúp tìm kiếm nhanh; re-ranking ở Mục 08 chỉ sắp xếp lại các kết quả đã tìm được. Vì vậy, không có một thành phần nào giải quyết toàn bộ vấn đề.
 
-| Thách thức | Thành phần xử lý chính | Cơ chế và giới hạn |
-| --- | --- | --- |
-| Sensory Gap | Image regions và multi-view video trong SCALE | Giảm một phần ảnh hưởng của background/góc nhìn; vẫn phải đo riêng trên noise slice vì proposal không có cải tiến query-noise riêng. |
-| Semantic Gap | Text/table encoder, JCT và attribute-aware re-ranking ở Mục 08 | Kết hợp chi tiết ảnh với model, material, color hoặc size; re-ranking chỉ hiệu quả khi query có context đáng tin cậy. |
-| Context-Query Gap | Query text/table tùy chọn, modality encoder, JCT, zero imputation và validation metadata | Khi có context, hệ thống tận dụng metadata để làm rõ intent; khi chỉ có ảnh, hệ thống không suy diễn ràng buộc từ Top-1. |
-| Model Gap | M5Product đa category và evaluation theo category | M5Product mở rộng coverage so với dataset đơn miền, nhưng long-tail/out-of-distribution vẫn là giới hạn cần báo cáo. |
-| Ràng buộc hệ thống | Embedding offline, `IndexFlatIP`, Faiss HNSW/IVF-PQ, exact re-ranking ở Mục 08 và metadata mapping | Flat tách lỗi representation khỏi ANN; HNSW giảm latency; IVF-PQ giảm memory; exact re-ranking sửa thứ tự trong Top-N, không thay thế index. |
+### 7.20.1. Sensory Gap
 
-Nhờ cách phân tách này, kết quả thực nghiệm có thể trả lời rõ ba câu hỏi: embedding có phân biệt đúng sản phẩm không, ANN đã đánh đổi bao nhiêu chất lượng để đổi lấy tốc độ, và nhóm query nào vẫn là failure case cần cải thiện.
+**Vấn đề:** ảnh query có thể tối, bị crop hoặc có background khác ảnh catalog.
+
+**Hệ thống làm gì:** image regions giúp model tập trung hơn vào vùng sản phẩm; video trong catalog cung cấp thêm góc nhìn của cùng sản phẩm.
+
+**Giới hạn:** nếu ảnh query quá mờ hoặc chỉ thấy một chi tiết quá nhỏ, kết quả vẫn có thể kém. Vì vậy cần báo cáo metric riêng cho từng nhóm ảnh nhiễu.
+
+### 7.20.2. Semantic Gap
+
+**Vấn đề:** sản phẩm nhìn giống nhau nhưng khác model, material, size hoặc compatibility.
+
+**Hệ thống làm gì:** image encoder học phần nhìn thấy; text/table encoder bổ sung thông tin như brand, model, material; JCT kết hợp các nguồn này. Nếu query có text/table đáng tin cậy, attribute-aware re-ranking ở Mục 08 ưu tiên candidate khớp thuộc tính.
+
+**Giới hạn:** nếu query chỉ có ảnh, hệ thống không biết chắc ràng buộc như “iPhone 14” hay “iPhone 15”.
+
+### 7.20.3. Context-Query Gap
+
+**Vấn đề:** chỉ từ ảnh, không phải lúc nào hệ thống cũng biết người dùng muốn đúng SKU, cùng style hay sản phẩm thay thế.
+
+**Hệ thống làm gì:** hệ thống nhận thêm text/table ngắn khi có; JCT và metadata catalog dùng thông tin đó để làm rõ intent. Zero imputation cho phép model vẫn hoạt động khi một modality bị thiếu.
+
+**Giới hạn:** metadata thiếu hoặc sai không thể tự trở thành thông tin đúng. Hệ thống không dùng metadata của Top-1 để đoán ngược ý định của query.
+
+### 7.20.4. Model Gap
+
+**Vấn đề:** model có thể học tốt các category quen thuộc nhưng kém với category hiếm hoặc chưa xuất hiện trong training.
+
+**Hệ thống làm gì:** M5Product có 6.232 category và 5 modality, nên model được học từ dữ liệu đa dạng hơn dataset đơn miền.
+
+**Giới hạn:** dữ liệu đa dạng giúp giảm gap nhưng không bảo đảm đúng với sản phẩm long-tail hoặc ngoài training. Vì vậy metric và failure case phải được tách theo category.
+
+### 7.20.5. Ràng buộc hệ thống
+
+**Vấn đề:** catalog lớn làm exact search chậm; catalog thay đổi làm index cũ đi nhanh.
+
+**Hệ thống làm gì:** embedding catalog được tạo offline. `IndexFlatIP` làm mốc exact; HNSW phục vụ tìm nhanh; IVF-PQ dùng khi cần giảm memory. Exact re-ranking ở Mục 08 sửa thứ tự của Top-N sau HNSW.
+
+**Giới hạn:** HNSW/IVF-PQ vẫn có recall loss so với exact search; re-ranking không tìm lại candidate bị ANN bỏ sót. Khi catalog thay đổi nhiều, index và metadata mapping cần được rebuild/batch update.
+
+Nhờ cách tách này, thực nghiệm có thể trả lời rõ: embedding có hiểu sản phẩm không, index đã đánh đổi bao nhiêu chất lượng để đổi tốc độ, và gap nào vẫn là failure case.
 
 ## 7.21. Summary
 

@@ -10,7 +10,7 @@ Visual search giải quyết phần lớn ma sát đó bằng cách cho phép ng
 
 Visual Product Image Search là bài toán tìm kiếm sản phẩm trong catalog dựa trên độ tương đồng giữa query và product entry. Trong phạm vi đề tài, query chính là ảnh; text hoặc bảng thuộc tính ngắn chỉ là ngữ cảnh bổ sung khi có sẵn. Catalog có thể chứa:
 
-- Ảnh sản phẩm do người dùng tải lên hoặc chụp từ thực tế.
+- Ảnh sản phẩm do người dùng tải lên: có thể là ảnh chụp thực tế ở nhà/ngoài trời/cửa hàng, ảnh crop từ cảnh có nhiều object, hoặc ảnh/screenshot từ mạng xã hội và website.
 - Title/caption và bảng thông tin như brand, material, color, style, usage.
 - Video nhiều góc nhìn và audio/mô tả đi kèm listing, nếu dataset có cung cấp.
 
