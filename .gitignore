@@ -3,5 +3,12 @@
 **/app/datasets/**
 !**/app/datasets/.gitkeep
 !**/app/datasets/download-dataset-tools.py
+!**/app/datasets/select-sample-method.md
+!**/app/datasets/classify_super_categories.py
+!**/app/datasets/m5product_label_taxonomy.csv
+!**/app/datasets/m5product_super_category_summary.csv
+!**/app/datasets/m5product_category_counts.csv
+!**/app/datasets/downloaded_m5product_balanced/
+!**/app/datasets/downloaded_m5product_balanced/category_counts.csv
 
 **/__pycache__/**
