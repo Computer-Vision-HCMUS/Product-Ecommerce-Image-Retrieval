@@ -352,6 +352,10 @@ def parse_args() -> argparse.Namespace:
                         help="Minimum metadata rows per label; defaults to --per-category.")
     parser.add_argument("--max-labels-per-super-category", type=int, default=3,
                         help="Maximum selected labels from a super-category across all frequency bands.")
+    parser.add_argument("--max-products", type=int, default=None,
+                        help="Stop after this many manifest records; defaults to all selected products.")
+    parser.add_argument("--resume", action="store_true",
+                        help="Append to an existing manifest and skip product IDs already recorded.")
     parser.add_argument("--workers", type=int, default=16)
     parser.add_argument("--timeout", type=int, default=30)
     parser.add_argument("--retries", type=int, default=2)
@@ -363,6 +367,8 @@ def main() -> int:
     args = parse_args()
     if args.per_category <= 0 or args.candidate_pool < args.per_category:
         raise SystemExit("--per-category must be positive and --candidate-pool must be at least --per-category.")
+    if args.max_products is not None and args.max_products <= 0:
+        raise SystemExit("--max-products must be positive.")
     min_samples = args.min_category_samples or args.per_category
     if min_samples < args.per_category or args.max_labels_per_super_category <= 0:
         raise SystemExit("--min-category-samples must be at least --per-category and the super-category cap must be positive.")
@@ -411,16 +417,38 @@ def main() -> int:
     images_dir, videos_dir = output_dir / "images", output_dir / "videos"
     images_dir.mkdir(exist_ok=True); videos_dir.mkdir(exist_ok=True)
     (output_dir / "category_selection.json").write_text(json.dumps(category_rows, ensure_ascii=False, indent=2), encoding="utf-8")
-    metadata = {item.record.product_id: {"title": item.record.title, "label": item.record.label, "tier": tiers[item.record.label], "url": item.record.image_url, "video": item.record.video_url, "pv": item.record.pv, "score": score} for item, score, _ in selected}
-    (output_dir / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"Selected {len(selected)} products across {len(tiers)} categories. Pass 3/3: downloading...", flush=True)
     manifest_path = output_dir / "manifest.jsonl"
-    with manifest_path.open("w", encoding="utf-8") as manifest, ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futures = [pool.submit(download_product, item, score, div, tiers[item.record.label], images_dir, videos_dir, args) for item, score, div in selected]
-        for done, future in enumerate(as_completed(futures), 1):
+    existing_ids: set[str] = set()
+    if args.resume and manifest_path.is_file():
+        with manifest_path.open("r", encoding="utf-8") as manifest:
+            for line in manifest:
+                try:
+                    product_id = json.loads(line).get("id")
+                except json.JSONDecodeError:
+                    continue
+                if product_id:
+                    existing_ids.add(str(product_id))
+    target_count = min(args.max_products or len(selected), len(selected))
+    target_selected = [entry for entry in selected if entry[0].record.product_id in existing_ids]
+    for entry in selected:
+        if len(target_selected) >= target_count:
+            break
+        if entry[0].record.product_id not in existing_ids:
+            target_selected.append(entry)
+    if len(target_selected) < target_count:
+        raise SystemExit(f"Only {len(target_selected)} selected records are available; cannot reach --max-products={target_count}.")
+    pending = [entry for entry in target_selected if entry[0].record.product_id not in existing_ids]
+    metadata = {item.record.product_id: {"title": item.record.title, "label": item.record.label, "tier": tiers[item.record.label], "url": item.record.image_url, "video": item.record.video_url, "pv": item.record.pv, "score": score} for item, score, _ in target_selected}
+    (output_dir / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Selected {len(selected)} products across {len(tiers)} categories. Pass 3/3: {len(existing_ids)} existing, {len(pending)} pending, target {target_count}...", flush=True)
+    manifest_mode = "a" if args.resume else "w"
+    with manifest_path.open(manifest_mode, encoding="utf-8") as manifest, ThreadPoolExecutor(max_workers=args.workers) as pool:
+        futures = [pool.submit(download_product, item, score, div, tiers[item.record.label], images_dir, videos_dir, args) for item, score, div in pending]
+        for completed, future in enumerate(as_completed(futures), 1):
             manifest.write(json.dumps(future.result(), ensure_ascii=False) + "\n"); manifest.flush()
-            if done % 50 == 0 or done == len(selected):
-                print(f"Processed {done}/{len(selected)} products", flush=True)
+            done = len(existing_ids) + completed
+            if completed % 50 == 0 or completed == len(pending):
+                print(f"Processed {done}/{target_count} products", flush=True)
     print(f"Wrote {manifest_path}", flush=True)
     return 0
 
