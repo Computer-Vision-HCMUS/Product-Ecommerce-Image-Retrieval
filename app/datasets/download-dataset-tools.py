@@ -1,11 +1,8 @@
 """Build and download a balanced, high-quality M5Product subset.
 
 The metadata file is streamed three times, so it is safe to use with the full
-M5Product JSON object.  Categories are selected in a round-robin manner across
-human-curated super-categories, rather than globally by frequency.  This avoids
-one domain (for example facial skincare) dominating the subset.  The default
-selection has 30 head, 40 medium, 20 tail, and 10 rare categories; each
-selected category contributes up to 200 products.
+M5Product JSON object. The default selection contains the 50 largest curated
+super-categories, with up to 200 products from each super-category.
 
 Products are ranked with:
     Score = .4 * Completeness + .3 * TextQuality + .2 * MerchantScore
@@ -21,6 +18,7 @@ from __future__ import annotations
 import argparse
 import csv
 import heapq
+import hashlib
 import json
 import mimetypes
 import os
@@ -28,6 +26,7 @@ import posixpath
 import re
 import socket
 import sys
+import threading
 import time
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -71,6 +70,10 @@ class ScoredRecord:
     title_tokens: frozenset[str]
     merchant: str
     image_host: str
+
+
+class NetworkInterrupted(RuntimeError):
+    """Raised when connectivity fails and the download must stop immediately."""
 
 
 def iter_top_level_object(path: Path) -> Iterator[ProductRecord]:
@@ -283,6 +286,13 @@ def select_products(candidates: Dict[str, list[ScoredRecord]], per_category: int
     return selected
 
 
+def folder_name(super_category: str) -> str:
+    """Create a stable Windows-safe folder name for a super-category."""
+    readable = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", super_category).strip(" ._")[:80]
+    suffix = hashlib.sha1(super_category.encode("utf-8")).hexdigest()[:8]
+    return f"{readable or 'uncategorized'}__{suffix}"
+
+
 def normalize_url(url: str) -> str:
     url = url.strip()
     while url.startswith("#"):
@@ -299,7 +309,12 @@ def guess_extension(url: str, content_type: Optional[str], fallback: str) -> str
     return fallback
 
 
-def download_url(url: str, output_stem: Path, fallback_ext: str, timeout: int, retries: int, overwrite: bool) -> Tuple[Optional[str], str]:
+def download_url(
+    url: str, output_stem: Path, fallback_ext: str, timeout: int, retries: int,
+    overwrite: bool, stop_event: threading.Event,
+) -> Tuple[Optional[str], str]:
+    if stop_event.is_set():
+        raise NetworkInterrupted("Download stopped after a connectivity failure.")
     url = normalize_url(url)
     if not url:
         return None, "missing"
@@ -308,6 +323,8 @@ def download_url(url: str, output_stem: Path, fallback_ext: str, timeout: int, r
         return str(candidate_path), "exists"
     last_error = ""
     for attempt in range(1, retries + 2):
+        if stop_event.is_set():
+            raise NetworkInterrupted("Download stopped after a connectivity failure.")
         try:
             request = Request(url, headers={"User-Agent": USER_AGENT, "Referer": "https://www.taobao.com/"})
             with urlopen(request, timeout=timeout) as response:
@@ -320,17 +337,31 @@ def download_url(url: str, output_stem: Path, fallback_ext: str, timeout: int, r
                         fh.write(block)
                 os.replace(tmp_path, final_path)
                 return str(final_path), "downloaded"
-        except (HTTPError, URLError, TimeoutError, socket.timeout, OSError, ValueError) as exc:
+        except HTTPError as exc:
             last_error = f"{type(exc).__name__}: {exc}"
-            time.sleep(min(2 * attempt, 8))
+            break
+        except (URLError, TimeoutError, socket.timeout) as exc:
+            stop_event.set()
+            raise NetworkInterrupted(f"Connectivity failure: {type(exc).__name__}: {exc}") from exc
+        except (OSError, ValueError) as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
+            break
     return None, f"error: {last_error}"
 
 
-def download_product(scored: ScoredRecord, score: float, diversity_score: float, tier: str, images_dir: Path, videos_dir: Path, args: argparse.Namespace) -> Dict[str, object]:
+def download_product(
+    scored: ScoredRecord, score: float, diversity_score: float, super_category: str,
+    dataset_dir: Path, args: argparse.Namespace, stop_event: threading.Event,
+) -> Dict[str, object]:
     record = scored.record
-    image_path, image_status = download_url(record.image_url, images_dir / record.product_id, ".jpg", args.timeout, args.retries, args.overwrite)
-    video_path, video_status = download_url(record.video_url, videos_dir / record.product_id, ".mp4", args.timeout, args.retries, args.overwrite)
-    return {"id": record.product_id, "title": record.title, "label": record.label, "tier": tier, "pv": record.pv,
+    directory = folder_name(super_category)
+    category_dir = dataset_dir / directory
+    category_images, category_videos = category_dir / "images", category_dir / "videos"
+    category_images.mkdir(parents=True, exist_ok=True)
+    category_videos.mkdir(parents=True, exist_ok=True)
+    image_path, image_status = download_url(record.image_url, category_images / record.product_id, ".jpg", args.timeout, args.retries, args.overwrite, stop_event)
+    video_path, video_status = download_url(record.video_url, category_videos / record.product_id, ".mp4", args.timeout, args.retries, args.overwrite, stop_event)
+    return {"id": record.product_id, "title": record.title, "label": record.label, "super_category": super_category, "pv": record.pv,
             "image_url": record.image_url, "video_url": record.video_url, "score": round(score, 6),
             "score_components": {"completeness": round(scored.completeness, 6), "text_quality": round(scored.text_quality, 6), "merchant_score": round(scored.merchant_score, 6), "diversity": round(diversity_score, 6)},
             "image_path": image_path, "video_path": video_path, "image_status": image_status, "video_status": video_status}
@@ -346,8 +377,10 @@ def parse_args() -> argparse.Namespace:
                         help="CSV statistics for every M5Product label.")
     parser.add_argument("--category-counts-only", action="store_true",
                         help="Only scan metadata and write --category-counts-output; do not select or download.")
-    parser.add_argument("--per-category", type=int, default=200, help="Maximum selected products per category.")
-    parser.add_argument("--candidate-pool", type=int, default=1000, help="Best pre-diversification candidates retained per category.")
+    parser.add_argument("--super-categories", type=int, default=50, help="Number of largest super-categories to include.")
+    parser.add_argument("--per-super-category", "--per-category", dest="per_super_category", type=int, default=200,
+                        help="Maximum selected products per super-category.")
+    parser.add_argument("--candidate-pool", type=int, default=1000, help="Best pre-diversification candidates retained per super-category.")
     parser.add_argument("--min-category-samples", type=int, default=None,
                         help="Minimum metadata rows per label; defaults to --per-category.")
     parser.add_argument("--max-labels-per-super-category", type=int, default=3,
@@ -358,20 +391,21 @@ def parse_args() -> argparse.Namespace:
                         help="Append to an existing manifest and skip product IDs already recorded.")
     parser.add_argument("--workers", type=int, default=16)
     parser.add_argument("--timeout", type=int, default=30)
-    parser.add_argument("--retries", type=int, default=2)
+    parser.add_argument("--retries", type=int, default=0,
+                        help="Retained for compatibility; network failures always stop the whole download immediately.")
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    if args.per_category <= 0 or args.candidate_pool < args.per_category:
-        raise SystemExit("--per-category must be positive and --candidate-pool must be at least --per-category.")
+    if args.super_categories <= 0 or args.per_super_category <= 0 or args.candidate_pool < args.per_super_category:
+        raise SystemExit("--super-categories and --per-super-category must be positive; --candidate-pool must be at least --per-super-category.")
     if args.max_products is not None and args.max_products <= 0:
         raise SystemExit("--max-products must be positive.")
-    min_samples = args.min_category_samples or args.per_category
-    if min_samples < args.per_category or args.max_labels_per_super_category <= 0:
-        raise SystemExit("--min-category-samples must be at least --per-category and the super-category cap must be positive.")
+    min_samples = args.min_category_samples or args.per_super_category
+    if min_samples < args.per_super_category:
+        raise SystemExit("--min-category-samples must be at least --per-super-category.")
     input_path, output_dir = args.input.resolve(), args.output.resolve()
     category_counts_path = args.category_counts_output.resolve()
     print("Pass 1/3: counting category frequencies...", flush=True)
@@ -386,21 +420,30 @@ def main() -> int:
         print(f"Wrote category statistics: {category_counts_path} ({len(counts)} categories)", flush=True)
         return 0
     taxonomy = load_taxonomy(args.taxonomy.resolve())
-    tiers, category_rows = select_categories(counts, taxonomy, (30, 40, 20, 10), min_samples, args.max_labels_per_super_category)
+    super_counts: Counter[str] = Counter()
+    for label, count in counts.items():
+        if taxonomy.get(label):
+            super_counts[taxonomy[label]] += count
+    selected_super_categories = [name for name, _ in sorted(super_counts.items(), key=lambda item: (-item[1], item[0]))[:args.super_categories]]
+    if len(selected_super_categories) != args.super_categories:
+        raise SystemExit(f"Only found {len(selected_super_categories)} mapped super-categories; need {args.super_categories}.")
+    selected_super_set = set(selected_super_categories)
+    category_rows = [{"super_category": name, "sample_count": super_counts[name], "selected": 0, "folder": folder_name(name)} for name in selected_super_categories]
     output_dir.mkdir(parents=True, exist_ok=True)
     with category_counts_path.open("w", encoding="utf-8-sig", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=("rank", "label", "sample_count", "selected", "tier", "super_category"))
         writer.writeheader()
         for rank, (label, count) in enumerate(sorted(counts.items(), key=lambda item: (-item[1], item[0])), 1):
             writer.writerow({"rank": rank, "label": label, "sample_count": count,
-                             "selected": label in tiers, "tier": tiers.get(label, ""), "super_category": taxonomy.get(label, "")})
+                             "selected": taxonomy.get(label, "") in selected_super_set, "tier": "", "super_category": taxonomy.get(label, "")})
     print(f"Wrote category statistics: {category_counts_path} ({len(counts)} categories)", flush=True)
-    print("Pass 2/3: scoring products in the selected 100 categories...", flush=True)
+    print(f"Pass 2/3: scoring products in {len(selected_super_categories)} selected super-categories...", flush=True)
     candidate_heaps: Dict[str, list[Tuple[float, str, ScoredRecord]]] = defaultdict(list)
     for record in iter_top_level_object(input_path):
-        if record.label in tiers:
+        super_category = taxonomy.get(record.label)
+        if super_category in selected_super_set:
             scored = score_record(record)
-            heap = candidate_heaps[record.label]
+            heap = candidate_heaps[super_category]
             entry = (scored.base_score, scored.record.product_id, scored)
             if len(heap) < args.candidate_pool:
                 heapq.heappush(heap, entry)
@@ -411,11 +454,9 @@ def main() -> int:
         label: [entry[2] for entry in sorted(heap, key=lambda entry: (-entry[0], entry[1]))]
         for label, heap in candidate_heaps.items()
     }
-    selected = select_products(candidates, args.per_category)
+    selected = select_products(candidates, args.per_super_category)
     for row in category_rows:
-        row["selected"] = sum(item.record.label == row["label"] for item, _, _ in selected)
-    images_dir, videos_dir = output_dir / "images", output_dir / "videos"
-    images_dir.mkdir(exist_ok=True); videos_dir.mkdir(exist_ok=True)
+        row["selected"] = sum(taxonomy.get(item.record.label) == row["super_category"] for item, _, _ in selected)
     (output_dir / "category_selection.json").write_text(json.dumps(category_rows, ensure_ascii=False, indent=2), encoding="utf-8")
     manifest_path = output_dir / "manifest.jsonl"
     existing_ids: set[str] = set()
@@ -438,14 +479,26 @@ def main() -> int:
     if len(target_selected) < target_count:
         raise SystemExit(f"Only {len(target_selected)} selected records are available; cannot reach --max-products={target_count}.")
     pending = [entry for entry in target_selected if entry[0].record.product_id not in existing_ids]
-    metadata = {item.record.product_id: {"title": item.record.title, "label": item.record.label, "tier": tiers[item.record.label], "url": item.record.image_url, "video": item.record.video_url, "pv": item.record.pv, "score": score} for item, score, _ in target_selected}
+    metadata = {item.record.product_id: {"title": item.record.title, "label": item.record.label, "super_category": taxonomy[item.record.label], "url": item.record.image_url, "video": item.record.video_url, "pv": item.record.pv, "score": score} for item, score, _ in target_selected}
     (output_dir / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"Selected {len(selected)} products across {len(tiers)} categories. Pass 3/3: {len(existing_ids)} existing, {len(pending)} pending, target {target_count}...", flush=True)
+    print(f"Selected {len(selected)} products across {len(selected_super_categories)} super-categories. Pass 3/3: {len(existing_ids)} existing, {len(pending)} pending, target {target_count}...", flush=True)
     manifest_mode = "a" if args.resume else "w"
+    stop_event = threading.Event()
     with manifest_path.open(manifest_mode, encoding="utf-8") as manifest, ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futures = [pool.submit(download_product, item, score, div, tiers[item.record.label], images_dir, videos_dir, args) for item, score, div in pending]
+        futures = [pool.submit(download_product, item, score, div, taxonomy[item.record.label], output_dir, args, stop_event) for item, score, div in pending]
         for completed, future in enumerate(as_completed(futures), 1):
-            manifest.write(json.dumps(future.result(), ensure_ascii=False) + "\n"); manifest.flush()
+            try:
+                row = future.result()
+            except NetworkInterrupted as exc:
+                stop_event.set()
+                for pending_future in futures:
+                    pending_future.cancel()
+                raise SystemExit(
+                    "Network connection was interrupted. Download stopped without retrying; "
+                    "run again with --resume after the connection is stable. "
+                    f"Details: {exc}"
+                ) from exc
+            manifest.write(json.dumps(row, ensure_ascii=False) + "\n"); manifest.flush()
             done = len(existing_ids) + completed
             if completed % 50 == 0 or completed == len(pending):
                 print(f"Processed {done}/{target_count} products", flush=True)

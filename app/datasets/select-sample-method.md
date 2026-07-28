@@ -58,3 +58,7 @@ Quy trình: giữ 1.000 ứng viên chất lượng cao nhất/category, rồi c
 ## 4. Kết quả
 
 Dataset tối đa có **20.000 sản phẩm**. File kết quả lưu category, siêu danh mục, tier và từng thành phần điểm để có thể kiểm tra lại việc chọn mẫu.
+
+## 5. Khi mất mạng
+
+Downloader dừng toàn bộ lượt tải ngay khi gặp lỗi kết nối, DNS hoặc timeout. Các mẫu đã hoàn thành vẫn nằm trong `manifest.jsonl`; chỉ tiếp tục lại khi chủ động chạy với `--resume` sau khi mạng ổn định.
