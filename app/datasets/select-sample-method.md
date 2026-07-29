@@ -61,4 +61,4 @@ Dataset tối đa có **20.000 sản phẩm**. File kết quả lưu category, s
 
 ## 5. Khi mất mạng
 
-Downloader dừng toàn bộ lượt tải ngay khi gặp lỗi kết nối, DNS hoặc timeout. Các mẫu đã hoàn thành vẫn nằm trong `manifest.jsonl`; chỉ tiếp tục lại khi chủ động chạy với `--resume` sau khi mạng ổn định.
+Mặc định, lỗi kết nối, DNS hoặc timeout chỉ được đánh dấu tại mẫu đó sau số lần retry đã cấu hình; lượt tải vẫn tiếp tục. Dùng `--stop-on-network-error` nếu muốn dừng toàn bộ lượt tải ngay khi mất mạng. Các mẫu đã hoàn thành luôn nằm trong `manifest.jsonl`.

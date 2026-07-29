@@ -311,7 +311,7 @@ def guess_extension(url: str, content_type: Optional[str], fallback: str) -> str
 
 def download_url(
     url: str, output_stem: Path, fallback_ext: str, timeout: int, retries: int,
-    overwrite: bool, stop_event: threading.Event,
+    overwrite: bool, stop_event: threading.Event, stop_on_network_error: bool,
 ) -> Tuple[Optional[str], str]:
     if stop_event.is_set():
         raise NetworkInterrupted("Download stopped after a connectivity failure.")
@@ -341,8 +341,12 @@ def download_url(
             last_error = f"{type(exc).__name__}: {exc}"
             break
         except (URLError, TimeoutError, socket.timeout) as exc:
-            stop_event.set()
-            raise NetworkInterrupted(f"Connectivity failure: {type(exc).__name__}: {exc}") from exc
+            if stop_on_network_error:
+                stop_event.set()
+                raise NetworkInterrupted(f"Connectivity failure: {type(exc).__name__}: {exc}") from exc
+            last_error = f"{type(exc).__name__}: {exc}"
+            if attempt <= retries:
+                time.sleep(min(2 * attempt, 8))
         except (OSError, ValueError) as exc:
             last_error = f"{type(exc).__name__}: {exc}"
             break
@@ -359,8 +363,8 @@ def download_product(
     category_images, category_videos = category_dir / "images", category_dir / "videos"
     category_images.mkdir(parents=True, exist_ok=True)
     category_videos.mkdir(parents=True, exist_ok=True)
-    image_path, image_status = download_url(record.image_url, category_images / record.product_id, ".jpg", args.timeout, args.retries, args.overwrite, stop_event)
-    video_path, video_status = download_url(record.video_url, category_videos / record.product_id, ".mp4", args.timeout, args.retries, args.overwrite, stop_event)
+    image_path, image_status = download_url(record.image_url, category_images / record.product_id, ".jpg", args.timeout, args.retries, args.overwrite, stop_event, args.stop_on_network_error)
+    video_path, video_status = download_url(record.video_url, category_videos / record.product_id, ".mp4", args.timeout, args.retries, args.overwrite, stop_event, args.stop_on_network_error)
     return {"id": record.product_id, "title": record.title, "label": record.label, "super_category": super_category, "pv": record.pv,
             "image_url": record.image_url, "video_url": record.video_url, "score": round(score, 6),
             "score_components": {"completeness": round(scored.completeness, 6), "text_quality": round(scored.text_quality, 6), "merchant_score": round(scored.merchant_score, 6), "diversity": round(diversity_score, 6)},
@@ -391,8 +395,9 @@ def parse_args() -> argparse.Namespace:
                         help="Append to an existing manifest and skip product IDs already recorded.")
     parser.add_argument("--workers", type=int, default=16)
     parser.add_argument("--timeout", type=int, default=30)
-    parser.add_argument("--retries", type=int, default=0,
-                        help="Retained for compatibility; network failures always stop the whole download immediately.")
+    parser.add_argument("--retries", type=int, default=2, help="Retries per failed URL after the first request.")
+    parser.add_argument("--stop-on-network-error", action="store_true",
+                        help="Stop the entire download on DNS, connection, or timeout errors (disabled by default).")
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 
