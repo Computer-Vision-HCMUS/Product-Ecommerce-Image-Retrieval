@@ -46,6 +46,14 @@ def write_json(file,data):
     json.dump(data,f,indent=2,ensure_ascii=False)
     return
 
+def vocab_id(tokenizer, token):
+    if token in tokenizer.vocab:
+        return tokenizer.vocab[token]
+    for unk in ("[UNK]", "[UNK]", "[UNK]"):
+        if unk in tokenizer.vocab:
+            return tokenizer.vocab[unk]
+    return 100
+
 missing_id_file=open("missing_id.txt","a",encoding="utf-8")
 
 class InputExample(object):
@@ -302,7 +310,7 @@ class BertPreprocessBatch(object):
         self.audio_len=audio_len
 
         # self.captions = list(json.load(open(caption_path, 'r')).values())
-        self.id_info_dict=json.load(open(caption_path, 'r'))
+        self.id_info_dict=json.load(open(caption_path, 'r', encoding='utf-8'))
 
         self.captions=[]  # TODO: change
         for each in self.id_info_dict:
@@ -704,14 +712,7 @@ class BertPreprocessBatch(object):
                     # -> rest 10% randomly keep current token
 
                     # append current token to output (we will predict these later)
-                    try:
-                        output_label.append(tokenizer.vocab[token])
-                    except KeyError:
-                        # For unknown words (should not occur with BPE vocab)
-                        output_label.append(tokenizer.vocab["[UNK]"])
-                        logger.warning(
-                            "Cannot find token '{}' in vocab. Using [UNK] insetad".format(token)
-                        )
+                    output_label.append(vocab_id(tokenizer, token))
                 else:
                     # no masking token (will be ignored by loss function later)
                     output_label.append(-1)
@@ -727,14 +728,7 @@ class BertPreprocessBatch(object):
             for i, token in enumerate(tokens):
                 if need_mask:
                     tokens[i] = "[MASK]"
-                    try:
-                        output_label.append(tokenizer.vocab[token])
-                    except KeyError:
-                        # For unknown words (should not occur with BPE vocab)
-                        output_label.append(tokenizer.vocab["[UNK]"])
-                        logger.warning(
-                            "Cannot find token '{}' in vocab. Using [UNK] insetad".format(token)
-                        )
+                    output_label.append(vocab_id(tokenizer, token))
                 else:
                     output_label.append(-1)
         else:

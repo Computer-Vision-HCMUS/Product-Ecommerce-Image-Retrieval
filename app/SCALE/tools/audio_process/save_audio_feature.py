@@ -1,116 +1,83 @@
-import torch
-import torchaudio
-import requests
-from io import BytesIO
-from moviepy.editor import *
-import time
-from multiprocessing import Pool
-from tqdm import tqdm
+"""Extract mel-spectrogram audio features (80 x 751) for SCALE pretraining."""
+
+from __future__ import annotations
+
+import argparse
 import json
-import random
-import pdb
+import os
+from pathlib import Path
+
+import librosa
 import numpy as np
+from tqdm import tqdm
+
+AUDIO_LEN = 12
+MEL_BINS = 80
+MEL_FRAMES = 751
 
 
-def read_json(file):
-    f=open(file,"r",encoding="utf-8").read()
-    return json.loads(f)
-
-def write_json(file,data):
-    f=open(file,"w",encoding="utf-8")
-    json.dump(data,f,indent=2,ensure_ascii=False)
-    return
+def read_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
-
-audio_len=12
-devices=torch.device("cuda" if torch.cuda.is_available() else "cpu")
-audio_dir = "/multi_modal/data/audios"
-audio_feature_dir= "/multi_modal/data/audio_feature"
-def extract_audio_feature(item_id):
-    # try:
-    if not os.path.exists("{}/{}.mp3".format(audio_dir,item_id)):
-        return None
-
-    if os.path.exists("{}/{}.npy".format(audio_feature_dir,item_id)):
-        return None
-
+def extract_audio_feature(item_id: str, audio_dir: Path, audio_feature_dir: Path) -> bool:
+    mp3_path = audio_dir / f"{item_id}.mp3"
+    out_path = audio_feature_dir / f"{item_id}.npy"
+    if not mp3_path.is_file():
+        return False
+    if out_path.is_file():
+        return True
     try:
-        audios,sample_rate = torchaudio.load("{}/{}.mp3".format(audio_dir,item_id))
-
-        audios=audios.to(devices)
-        resample = torchaudio.transforms.Resample(sample_rate, 16000).to(devices)
-        audios=resample(audios)
-        audio_data = torch.sum(torch.as_tensor(audios), dim=0) / 2
-
-
-        if (len(audio_data) / 16000 < audio_len):
-            new_audio_data = torch.zeros([audio_len * 16000]).to(devices)
-            new_audio_data[0:len(audio_data)] = audio_data
-            audio_data = new_audio_data.to(devices)
+        waveform, sample_rate = librosa.load(str(mp3_path), sr=16000, mono=True)
+        target_len = AUDIO_LEN * 16000
+        if waveform.shape[0] < target_len:
+            padded = np.zeros(target_len, dtype=np.float32)
+            padded[: waveform.shape[0]] = waveform
+            waveform = padded
         else:
-            # audio_data = torch.as_tensor(audio_data.cpu().numpy())[:16000 * audio_len].to(devices)
-            audio_data=audio_data[:16000 * audio_len]
-
-        transform=torchaudio.transforms.MelSpectrogram(n_mels=80,
-                                                       n_fft=1024,
-                                                       win_length=1024,
-                                                       hop_length=256).to(devices)
-
-        audio_feature = transform(audio_data)
-        # (channel, n_mels, time)
-        print("audio_feature1: ",audio_feature.size()) # 80 x 751
-        cur_mean, cur_std = audio_feature.mean(dim=0), audio_feature.std(dim=0)
-        audio_feature = (audio_feature - cur_mean) / (cur_std + 1e-9)
-        # audio_feature = audio_feature.permute(1, 0)
-        # num_audio = audio_feature.shape[0]
-        # print("audio_feature2: ",audio_feature.size())
-        audio_feature_np=audio_feature.cpu().numpy()
-        print("audio_feature_np: ",audio_feature_np.shape)
-
-        np.save("{}/{}.npy".format(audio_feature_dir,item_id),audio_feature_np)
-
-    except Exception as e:
-        print(e)
+            waveform = waveform[:target_len]
+        mel = librosa.feature.melspectrogram(
+            y=waveform, sr=16000, n_fft=1024, hop_length=256, n_mels=MEL_BINS
+        )
+        mel = librosa.power_to_db(mel, ref=np.max)
+        mel = mel.astype(np.float32)
+        cur_mean, cur_std = mel.mean(axis=1, keepdims=True), mel.std(axis=1, keepdims=True)
+        mel = (mel - cur_mean) / (cur_std + 1e-9)
+        if mel.shape[1] < MEL_FRAMES:
+            padded = np.zeros((MEL_BINS, MEL_FRAMES), dtype=np.float32)
+            padded[:, : mel.shape[1]] = mel
+            mel = padded
+        else:
+            mel = mel[:, :MEL_FRAMES]
+        np.save(out_path, mel)
+        return True
+    except Exception as exc:
+        print(f"audio error {item_id}: {exc}")
+        return False
 
 
-def extract_audios_feature(item_id_list):
-    for item_id in tqdm(item_id_list):
-        extract_audio_feature(item_id)
-        # break
+def write_zero_audio(item_id: str, audio_feature_dir: Path) -> None:
+    out_path = audio_feature_dir / f"{item_id}.npy"
+    if not out_path.is_file():
+        np.save(out_path, np.zeros((MEL_BINS, MEL_FRAMES), dtype=np.float32))
 
 
-if __name__ == '__main__':
-    print()
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--id-label", type=Path, required=True)
+    parser.add_argument("--audio-dir", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--zero-fill-missing", action="store_true")
+    args = parser.parse_args()
 
-    # item_id="123456"
-    # video_url="http://cloud.video.taobao.com/play/u/1745634433/p/1/e/6/t/1/50152114431.mp4"
-    # audio_processor.get_audio_feature(item_id,video_url)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    ids = list(read_json(args.id_label).keys())
 
-    # one thread
-    subset_v2_id_list=list(read_json("/multi_modal/data/product5m_v2/subset_v2_id_label.json").keys())
-    extract_audios_feature(subset_v2_id_list)
-
-    # multi thread
-    # subset_v2_id_list=list(read_json("/multi_modal/data/product5m_v2/subset_v2_id_label.json").keys())
-    # filter_data=subset_v2_id_list
-    # random.shuffle(filter_data)
-    #
-    # thread_num = 10
-    # chunk_size = int(len(filter_data) / thread_num)
-    # chunk_data = [filter_data[i:i + chunk_size] for i in range(0, len(filter_data), chunk_size)]
-    #
-    # pool = Pool(thread_num)
-    # # download_all_data_images(data)
-    # multi_data = pool.map(extract_audios_feature, chunk_data)
-    #
+    for item_id in tqdm(ids, desc="audio features"):
+        ok = extract_audio_feature(item_id, args.audio_dir, args.output_dir)
+        if not ok and args.zero_fill_missing:
+            write_zero_audio(item_id, args.output_dir)
 
 
-
-
-
-
-
-
-
-
+if __name__ == "__main__":
+    main()

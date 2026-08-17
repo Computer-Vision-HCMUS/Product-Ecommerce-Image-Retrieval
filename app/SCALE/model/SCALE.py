@@ -1400,7 +1400,8 @@ class BertModel(BertPreTrainedModel):
         self.audio_embedding = BertAudioEmbeddings(config)
 
         self.encoder = BertEncoder(config)
-        self.cross_config=PretrainedConfig.from_json_file("/multi_modal/CAPTURE/model/cross-base/cross_config.json")
+        cross_config_path = os.path.join(os.path.dirname(__file__), "cross-base", "cross_config.json")
+        self.cross_config = PretrainedConfig.from_json_file(cross_config_path)
         self.cross_config.num_hidden_layers=config.co_num_layers
         self.cross_encoder=CrossModel(self.cross_config)
 

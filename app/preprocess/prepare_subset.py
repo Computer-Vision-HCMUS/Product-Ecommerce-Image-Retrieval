@@ -49,23 +49,25 @@ def serialize_pv(value: str) -> str:
 
 
 def make_splits(ids: list[str], labels: dict[str, str], seed: int) -> dict[str, list[str]]:
-    """Split within label groups, preserving labels for custom positive matching."""
+    """Split within label groups: train / val / test / gallery."""
     rng = random.Random(seed)
     grouped: dict[str, list[str]] = {}
     for product_id in ids:
         grouped.setdefault(labels[product_id], []).append(product_id)
-    train, gallery, query = [], [], []
+    train, val, test, gallery = [], [], [], []
     for group_ids in grouped.values():
         rng.shuffle(group_ids)
         if len(group_ids) == 1:
             train.extend(group_ids)
             continue
-        query_count = max(1, round(len(group_ids) * 0.1))
-        gallery_count = max(1, round(len(group_ids) * 0.2))
-        query.extend(group_ids[:query_count])
-        gallery.extend(group_ids[query_count : query_count + gallery_count])
-        train.extend(group_ids[query_count + gallery_count :])
-    return {"train": train, "gallery": gallery, "query": query}
+        test_count = max(1, round(len(group_ids) * 0.1))
+        val_count = max(1, round(len(group_ids) * 0.1))
+        gallery_count = max(1, round(len(group_ids) * 0.1))
+        test.extend(group_ids[:test_count])
+        val.extend(group_ids[test_count : test_count + val_count])
+        gallery.extend(group_ids[test_count + val_count : test_count + val_count + gallery_count])
+        train.extend(group_ids[test_count + val_count + gallery_count :])
+    return {"train": train, "val": val, "test": test, "gallery": gallery}
 
 
 def main() -> None:
