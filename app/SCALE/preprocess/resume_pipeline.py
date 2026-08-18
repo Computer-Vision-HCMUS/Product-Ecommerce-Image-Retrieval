@@ -178,6 +178,7 @@ def main() -> None:
                     "--output-lmdb", str(work / "lmdb_features" / f"{split}_feature.lmdb"),
                     "--ids-file", str(work / f"{split}_ids.json"),
                     "--tsv-name", "features.tsv",
+                    "--map-size-gb", "8",
                 ],
                 env={**dict(**{k: v for k, v in __import__("os").environ.items()}), **env},
                 cwd=str(repo),

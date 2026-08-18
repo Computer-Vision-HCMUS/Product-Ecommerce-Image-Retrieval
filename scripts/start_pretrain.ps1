@@ -1,6 +1,9 @@
 # Start SCALE paper pretrain — single instance, live log, GPU training.
 param(
-    [int]$TrainEpochs = 1
+    [int]$TrainEpochs = 1,
+    [int]$StartEpoch = 0,
+    [string]$FromCheckpoint = "",
+    [switch]$AppendLog
 )
 $ErrorActionPreference = "Continue"
 $repo = Resolve-Path (Join-Path $PSScriptRoot "..")
@@ -20,13 +23,16 @@ if ($running) {
     exit 1
 }
 
-"" | Set-Content -Path $log -Encoding utf8
-Write-Host "Epochs: $TrainEpochs | Log: $log"
+$pretrained = if ($FromCheckpoint) { $FromCheckpoint } else { "bert-base-chinese" }
+if (-not $AppendLog) {
+    "" | Set-Content -Path $log -Encoding utf8
+}
+Write-Host "Epochs: $TrainEpochs (start $StartEpoch) | from: $pretrained | Log: $log"
 Write-Host "Tail log: Get-Content '$log' -Wait -Tail 15"
 
 Push-Location $examples
 & $py -u pretrain_task.py `
-    --from_pretrained bert-base-chinese `
+    --from_pretrained $pretrained `
     --bert_model bert-base-chinese `
     --config_file "..\..\config\bert_base_6layer_6conect_capture_itp3va.json" `
     --predict_feature `
@@ -40,6 +46,7 @@ Push-Location $examples
     --train_batch_size 16 `
     --gradient_accumulation_steps 8 `
     --num_train_epochs $TrainEpochs `
+    --start_epoch $StartEpoch `
     --max_seq_length 36 `
     --video_len 12 `
     --pv_seq_len 64 `
