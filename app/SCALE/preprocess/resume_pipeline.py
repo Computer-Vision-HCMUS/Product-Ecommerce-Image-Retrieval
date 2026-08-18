@@ -18,13 +18,10 @@ def count_tsv_rows(tsv_path: Path) -> int:
 
 
 def latest_checkpoint(ckpt_dir: Path) -> Path:
-    bins = sorted(
-        ckpt_dir.glob("pytorch_model_*.bin"),
-        key=lambda path: int(path.stem.rsplit("_", 1)[-1]),
-    )
+    bins = list(ckpt_dir.glob("pytorch_model_*.bin"))
     if not bins:
         raise FileNotFoundError(f"No checkpoint found in {ckpt_dir}")
-    return bins[-1]
+    return max(bins, key=lambda path: path.stat().st_mtime)
 
 
 def main() -> None:
@@ -47,6 +44,11 @@ def main() -> None:
         "--skip-lmdb",
         action="store_true",
         help="Skip rebuilding LMDB splits (use when already built)",
+    )
+    parser.add_argument(
+        "--skip-pretrain",
+        action="store_true",
+        help="Skip pretrain and use latest checkpoint in checkpoints/<save_name>/",
     )
     args = parser.parse_args()
 
@@ -119,13 +121,16 @@ def main() -> None:
         "--num_workers", "0",
         "--MLM", "--MRM", "--MEM", "--MFM", "--MAM", "--CLR",
     ]
-    if args.fp16:
-        pretrain_cmd.append("--fp16")
-    subprocess.check_call(
-        pretrain_cmd,
-        cwd=str(examples),
-        env={**dict(**{k: v for k, v in __import__("os").environ.items()}), **env},
-    )
+    if not args.skip_pretrain:
+        if args.fp16:
+            pretrain_cmd.append("--fp16")
+        subprocess.check_call(
+            pretrain_cmd,
+            cwd=str(examples),
+            env={**dict(**{k: v for k, v in __import__("os").environ.items()}), **env},
+        )
+    else:
+        print("Skipping pretrain; using latest checkpoint")
     ckpt = latest_checkpoint(work / "checkpoints" / "scale_paper_simcl")
     print(f"Using checkpoint: {ckpt}")
     for split in ("test", "gallery"):

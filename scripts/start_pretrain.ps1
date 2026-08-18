@@ -1,5 +1,8 @@
 # Start SCALE paper pretrain — single instance, live log, GPU training.
-$ErrorActionPreference = "Stop"
+param(
+    [int]$TrainEpochs = 1
+)
+$ErrorActionPreference = "Continue"
 $repo = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $repo
 
@@ -18,9 +21,8 @@ if ($running) {
 }
 
 "" | Set-Content -Path $log -Encoding utf8
-Write-Host "Log: $log"
-Write-Host "Phase 1 (~1-2 min): CPU load cao — extract/load BERT weights"
-Write-Host "Phase 2: GPU ~40-80% — train; CPU vẫn bận vì load LMDB + tokenize + sidecar npy"
+Write-Host "Epochs: $TrainEpochs | Log: $log"
+Write-Host "Tail log: Get-Content '$log' -Wait -Tail 15"
 
 Push-Location $examples
 & $py -u pretrain_task.py `
@@ -37,7 +39,7 @@ Push-Location $examples
     --save_name scale_paper_simcl `
     --train_batch_size 16 `
     --gradient_accumulation_steps 8 `
-    --num_train_epochs 5 `
+    --num_train_epochs $TrainEpochs `
     --max_seq_length 36 `
     --video_len 12 `
     --pv_seq_len 64 `

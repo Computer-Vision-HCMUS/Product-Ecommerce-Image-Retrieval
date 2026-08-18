@@ -43,7 +43,7 @@ def main():
 
 
     print(args)
-    if args.save_name is not '':
+    if args.save_name != '':
         timeStamp = args.save_name
     else:
         timeStamp = strftime("%d-%b-%y-%X-%a", gmtime())
