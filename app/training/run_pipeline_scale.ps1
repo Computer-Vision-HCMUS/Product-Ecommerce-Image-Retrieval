@@ -6,7 +6,7 @@ pretrain SIMCL -> extract tpiva -> Faiss -> eval.
 param(
     [string]$Python = "C:\Users\SenetUser\AppData\Local\Programs\Python\Python312\python.exe",
     [string]$DatasetDir = "app/datasets/downloaded_m5product_balanced",
-    [string]$SplitsDir = "artifacts/downloaded_2k",
+    [string]$SplitsDir = "artifacts/scale_paper_splits",
     [string]$WorkDir = "artifacts/scale_paper",
     [int]$Limit = 0,
     [switch]$PrepareOnly,
@@ -15,8 +15,8 @@ param(
     [switch]$SkipEval,
     [int]$TrainEpochs = 5,
     [int]$BatchSize = 16,
-    [int]$GradAccum = 16,
-    [switch]$Fp16 = $true,
+    [int]$GradAccum = 8,
+    [switch]$Fp16 = $false,
     [switch]$SmokeTest
 )
 
@@ -81,7 +81,9 @@ if (-not $SkipFeatures) {
         & $Python "$scaleRoot\tools\bp_feature\convert\convert_from_config.py" `
             --tsv-dir "$WorkDir\tsv_features" `
             --output-lmdb "$WorkDir\lmdb_features\${split}_feature.lmdb" `
-            --ids-file "$WorkDir\${split}_ids.json"
+            --ids-file "$WorkDir\${split}_ids.json" `
+            --tsv-name features.tsv `
+            --map-size-gb 8
     }
 }
 
@@ -145,25 +147,23 @@ foreach ($split in @("test", "gallery")) {
 }
 Pop-Location
 
-Write-Host "=== Phase 5b: Retrieval eval ==="
+Write-Host "=== Phase 5–6: Paper eval + Faiss (evaluate_unit_v2) ==="
 if (-not $SkipEval) {
-    & $Python "$scaleRoot\preprocess\run_retrieval_eval.py" `
-        --query-features "$WorkDir\features\test\tpiva_feature_np.npy" `
-        --query-ids "$WorkDir\features\test\id.npy" `
-        --gallery-features "$WorkDir\features\gallery\tpiva_feature_np.npy" `
-        --gallery-ids "$WorkDir\features\gallery\id.npy" `
-        --id-label "$WorkDir\id_label.json" `
-        --output "$WorkDir\evaluation.json"
+    & $Python "$scaleRoot\preprocess\resume_pipeline.py" `
+        --work-dir $WorkDir `
+        --skip-wait `
+        --skip-lmdb `
+        --skip-pretrain `
+        --skip-extract
+} else {
+    & $Python app\indexing\build_index.py `
+        --embeddings "$WorkDir\features\gallery\tpiva_feature_np.npy" `
+        --ids "$WorkDir\features\gallery\id.npy" `
+        --output-dir "$WorkDir\index_hnsw" `
+        --index-type hnsw
 }
-
-Write-Host "=== Phase 6: Faiss index ==="
-& $Python app\indexing\build_index.py `
-    --embeddings "$WorkDir\features\gallery\tpiva_feature_np.npy" `
-    --ids "$WorkDir\features\gallery\id.npy" `
-    --output-dir "$WorkDir\index_hnsw" `
-    --index-type hnsw
 
 Write-Host "Pipeline complete."
 Write-Host "  Work dir: $WorkDir"
-Write-Host "  Eval: $WorkDir\evaluation.json"
-Write-Host "  API: `$env:SCALE_BACKEND='paper'; `$env:SCALE_WORK_DIR='$WorkDir'; uvicorn api.main:app --app-dir app --reload --port 8000"
+Write-Host "  Benchmark metrics: $WorkDir\evaluation_benchmark.json"
+Write-Host "  API: `$env:SCALE_BACKEND='paper'; `$env:SCALE_WORK_DIR='$WorkDir'; powershell -File scripts/start_backend.ps1"
