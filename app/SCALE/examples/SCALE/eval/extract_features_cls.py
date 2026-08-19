@@ -140,7 +140,7 @@ def main():
             raise ImportError(
                 "Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training."
             )
-        model = DDP(model, deay_allreduce=True)
+        model = DDP(model, delay_allreduce=True)
 
     elif n_gpu > 1:
         model = nn.DataParallel(model)

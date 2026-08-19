@@ -1,14 +1,56 @@
+# Archives
 *.zip
 
-**/app/datasets/**
-!**/app/datasets/.gitkeep
-!**/app/datasets/download-dataset-tools.py
-!**/app/datasets/select-sample-method.md
-!**/app/datasets/classify_super_categories.py
-!**/app/datasets/m5product_label_taxonomy.csv
-!**/app/datasets/m5product_super_category_summary.csv
-!**/app/datasets/m5product_category_counts.csv
-!**/app/datasets/downloaded_m5product_balanced/
-!**/app/datasets/downloaded_m5product_balanced/category_counts.csv
-
+# Python
 **/__pycache__/**
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Environment / secrets
+.env
+.env.*
+
+# --- Datasets: ignore all contents, keep only scripts/metadata at top level ---
+app/datasets/**
+!app/datasets/
+!app/datasets/.gitkeep
+!app/datasets/*.py
+!app/datasets/*.md
+!app/datasets/*.csv
+
+# --- Pipeline artifacts (regeneratable) ---
+artifacts/**
+
+# SCALE training outputs
+app/SCALE/examples/SCALE/logs/
+app/SCALE/examples/SCALE/artifacts/
+app/SCALE/examples/SCALE/missing_id.txt
+**/checkpoints/
+**/*.lmdb
+**/*.lmdb-lock
+
+# Large binary sidecars (features / media)
+**/*.npy
+**/*.faiss
+**/*.mp4
+**/*.mp3
+**/*.jpg
+**/*.jpeg
+**/*.png
+**/*.webp
+
+# Re-allow small repo assets if any (none today; add exceptions here if needed)
+!docs/**
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# IDE / OS
+.idea/
+.vscode/*
+!.vscode/settings.json
+Thumbs.db
+Desktop.ini

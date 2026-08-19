@@ -8,6 +8,7 @@ import numpy as np
 
 import sys
 sys.path.append("../../../")
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
@@ -26,7 +27,7 @@ from torch.utils.data import DataLoader, Dataset, RandomSampler
 from pytorch_pretrained_bert.tokenization import BertTokenizer
 
 from dataloaders.pretrain_dataset_ITP3VA import Pretrain_DataSet_Train
-from model.capture_ITP3VA_v3_dyctr_dymask_per_sample import BertForMultiModalPreTraining, BertConfig
+from model.SCALE import BertForMultiModalPreTraining, BertConfig
 
 
 from utils_args import get_args
@@ -115,6 +116,7 @@ def main():
         video_len=args.video_len,
         pv_seq_len=args.pv_seq_len,
         audio_file_dir=args.audio_file_dir,
+        audio_feature_dir=args.audio_feature_dir or args.audio_file_dir,
         audio_len=args.audio_len,
         MLM=args.MLM,
         MRM=args.MRM,
@@ -145,7 +147,7 @@ def main():
             raise ImportError(
                 "Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training."
             )
-        model = DDP(model, deay_allreduce=True)
+        model = DDP(model, delay_allreduce=True)
 
     elif n_gpu > 1:
         model = nn.DataParallel(model)

@@ -1,7 +1,0 @@
-{
-  "index_type": "hnsw",
-  "metric": "inner_product_on_l2_normalized_vectors",
-  "dimension": 768,
-  "count": 3851,
-  "build_seconds": 0.5899128000000928
-}

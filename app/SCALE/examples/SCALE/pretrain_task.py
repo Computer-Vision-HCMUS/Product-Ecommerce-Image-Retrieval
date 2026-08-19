@@ -43,7 +43,7 @@ def main():
 
 
     print(args)
-    if args.save_name is not '':
+    if args.save_name != '':
         timeStamp = args.save_name
     else:
         timeStamp = strftime("%d-%b-%y-%X-%a", gmtime())
@@ -126,6 +126,7 @@ def main():
         video_len=args.video_len,
         pv_seq_len=args.pv_seq_len,
         audio_file_dir=args.audio_file_dir,
+        audio_feature_dir=args.audio_feature_dir or args.audio_file_dir,
         audio_len=args.audio_len,
         MLM=args.MLM,
         MRM=args.MRM,
@@ -285,6 +286,16 @@ def main():
     logger.info("  Batch size = %d", args.train_batch_size)
     logger.info("  Num steps = %d", num_train_optimization_steps)
 
+    steps_per_epoch = len(train_dataset)
+    total_epochs = int(args.num_train_epochs) - int(args.start_epoch)
+    logger.info(
+        "  Epochs = %d (from %d to %d), batches/epoch = %d",
+        total_epochs,
+        int(args.start_epoch),
+        int(args.num_train_epochs),
+        steps_per_epoch,
+    )
+
     startIterID = 0
     global_step = 0
     masked_loss_v_tmp = 0
@@ -305,6 +316,14 @@ def main():
     # t1 = timer()
     # args.num_train_epochs=100
     for epochId in range(int(args.start_epoch), int(args.num_train_epochs)):
+        epoch_num = epochId + 1
+        logger.info(
+            "===== Epoch %d/%d started (%d batches) =====",
+            epoch_num,
+            int(args.num_train_epochs),
+            steps_per_epoch,
+        )
+        sys.stdout.flush()
         # model.train()
         tr_loss = 0
         nb_tr_examples, nb_tr_steps = 0, 0
@@ -394,7 +413,14 @@ def main():
                 loss.backward()
 
             if math.isnan(loss.item()):
-                pdb.set_trace()
+                logger.warning(
+                    "NaN loss at step %s image_id=%s; skipping batch",
+                    step,
+                    image_id,
+                )
+                model.zero_grad()
+                optimizer.zero_grad()
+                continue
 
             tr_loss += loss.item()
 
@@ -441,53 +467,53 @@ def main():
                 optimizer.zero_grad()
                 global_step += 1
 
-            if step % 20 == 0 and step != 0:
-                masked_loss_t_tmp = masked_loss_t_tmp / 20.0
-                masked_loss_pv_tmp =  masked_loss_pv_tmp / 20.0
-                masked_loss_v_tmp = masked_loss_v_tmp / 20.0
-                masked_loss_video_tmp=masked_loss_video_tmp/20.0
-                masked_loss_audio_tmp=masked_loss_audio_tmp/20.0
-                next_sentence_loss_tmp = next_sentence_loss_tmp / 20.0
-                loss_tmp = loss_tmp / 20.0
+            if step % 20 == 0:
+                epoch_pct = 100.0 * (step + 1) / max(steps_per_epoch, 1)
+                epochs_done = epochId - int(args.start_epoch)
+                overall_pct = 100.0 * (epochs_done * steps_per_epoch + step + 1) / max(
+                    total_epochs * steps_per_epoch, 1
+                )
+                if step != 0:
+                    masked_loss_t_tmp = masked_loss_t_tmp / 20.0
+                    masked_loss_pv_tmp = masked_loss_pv_tmp / 20.0
+                    masked_loss_v_tmp = masked_loss_v_tmp / 20.0
+                    masked_loss_video_tmp = masked_loss_video_tmp / 20.0
+                    masked_loss_audio_tmp = masked_loss_audio_tmp / 20.0
+                    next_sentence_loss_tmp = next_sentence_loss_tmp / 20.0
+                    loss_tmp = loss_tmp / 20.0
 
-                end_t = timer()
-                timeStamp = strftime("%a %d %b %y %X", gmtime())
-
-                Ep = epochId + nb_tr_steps / float(len(train_dataset))
-                printFormat = "[%s][Ep: %.2f][Iter: %d][Time: %5.2fs][Loss: %.5g][Loss_pv: %.5g][Loss_v: %.5g]" \
-                              "[Loss_video: %.5g][Loss_audio: %.5g][Loss_t: %.5g][Loss_n: %.5g][LR: %.8g][epoch: %d][step: %d]"
-
-                printInfo = [
-                    timeStamp,
-                    Ep,
-                    nb_tr_steps,
-                    end_t - start_t,
-                    loss_tmp,
-                    masked_loss_pv_tmp,
-                    masked_loss_v_tmp,
-                    masked_loss_video_tmp,
-                    masked_loss_audio_tmp,
-                    masked_loss_t_tmp,
-                    next_sentence_loss_tmp,
+                logger.info(
+                    "Epoch %d/%d: %.1f%% | Overall: %.1f%% | batch %d/%d | "
+                    "loss=%.4f lr=%.2e",
+                    epoch_num,
+                    int(args.num_train_epochs),
+                    epoch_pct,
+                    overall_pct,
+                    step + 1,
+                    steps_per_epoch,
+                    loss_tmp if step != 0 else loss.item(),
                     optimizer.get_lr()[0],
-                    epochId,
-                    step
-                ]
-                
-                start_t = end_t
-                print(printFormat % tuple(printInfo))
+                )
+                sys.stdout.flush()
 
-                # print(" right/all_num: {}/{}  ---   ACC:{}".format(right_temp,all_num_temp,right_temp/all_num_temp))
-
-                masked_loss_v_tmp = 0
-                masked_loss_video_tmp=0
-                masked_loss_t_tmp = 0
-                masked_loss_pv_tmp = 0
-                masked_loss_audio_tmp = 0
-                next_sentence_loss_tmp = 0
-                loss_tmp = 0
+                if step != 0:
+                    end_t = timer()
+                    start_t = end_t
+                    masked_loss_v_tmp = 0
+                    masked_loss_video_tmp = 0
+                    masked_loss_t_tmp = 0
+                    masked_loss_pv_tmp = 0
+                    masked_loss_audio_tmp = 0
+                    next_sentence_loss_tmp = 0
+                    loss_tmp = 0
 
         if default_gpu:
+            logger.info(
+                "Epoch %d/%d complete (100%%). Saving checkpoint...",
+                epoch_num,
+                int(args.num_train_epochs),
+            )
+            sys.stdout.flush()
             # Save a trained model
             logger.info("** ** * Saving fine - tuned model ** ** * ")
             model_to_save = (
@@ -498,6 +524,8 @@ def main():
             )
 
             torch.save(model_to_save.state_dict(), output_model_file)
+            logger.info("Saved %s", output_model_file)
+            sys.stdout.flush()
 
 class TBlogger:
     def __init__(self, log_dir, exp_name):

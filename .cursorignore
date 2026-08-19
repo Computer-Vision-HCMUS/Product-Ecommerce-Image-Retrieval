@@ -1,0 +1,9 @@
+﻿app/datasets/downloaded_*/
+app/datasets/smoke_demo/
+artifacts/
+**/__pycache__/
+**/*.lmdb
+**/*.npy
+**/*.faiss
+**/*.mp4
+frontend/node_modules/

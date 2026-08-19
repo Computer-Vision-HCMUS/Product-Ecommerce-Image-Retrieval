@@ -4,6 +4,11 @@ The metadata file is streamed three times, so it is safe to use with the full
 M5Product JSON object. The default selection contains the 50 largest curated
 super-categories, with up to 200 products from each super-category.
 
+Within each super-category, products are split by modality completeness:
+    80% full modality (title, label, image, video, pv all present)
+    20% incomplete modality (naturally missing fields, or full samples with
+    1-2 modalities artificially masked when natural incomplete samples run out)
+
 Products are ranked with:
     Score = .4 * Completeness + .3 * TextQuality + .2 * MerchantScore
             + .1 * Diversity
@@ -23,6 +28,7 @@ import json
 import mimetypes
 import os
 import posixpath
+import random
 import re
 import socket
 import sys
@@ -30,7 +36,7 @@ import threading
 import time
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Dict, Iterator, Optional, Tuple
 from urllib.error import HTTPError, URLError
@@ -48,6 +54,8 @@ USER_AGENT = (
 )
 TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
 MERCHANT_KEYS = ("merchant", "seller", "shop", "store", "vendor")
+MODALITY_FIELDS = ("title", "label", "image_url", "video_url", "pv")
+MASKABLE_MODALITIES = ("title", "pv", "video_url")
 
 
 @dataclass(frozen=True)
@@ -70,6 +78,14 @@ class ScoredRecord:
     title_tokens: frozenset[str]
     merchant: str
     image_host: str
+
+
+@dataclass(frozen=True)
+class SelectionMeta:
+    modality_complete: bool
+    modality_source: str
+    masked_modalities: tuple[str, ...]
+    modality_present: dict[str, bool]
 
 
 class NetworkInterrupted(RuntimeError):
@@ -125,6 +141,60 @@ def _skip_ws_and_commas(text: str, pos: int) -> int:
 
 def nonempty(value: str) -> bool:
     return bool(value and value.strip() and value.strip().lower() not in {"null", "none", "nan"})
+
+
+def modality_presence(record: ProductRecord) -> dict[str, bool]:
+    return {
+        "title": nonempty(record.title),
+        "label": nonempty(record.label),
+        "image_url": nonempty(record.image_url),
+        "video_url": nonempty(record.video_url),
+        "pv": nonempty(record.pv),
+    }
+
+
+def is_selectable(record: ProductRecord) -> bool:
+    """Require image and label so a product can be downloaded and evaluated."""
+    flags = modality_presence(record)
+    return flags["label"] and flags["image_url"]
+
+
+def is_full_modality(record: ProductRecord) -> bool:
+    return all(modality_presence(record).values())
+
+
+def missing_modalities(record: ProductRecord) -> tuple[str, ...]:
+    return tuple(name for name, present in modality_presence(record).items() if not present)
+
+
+def mask_rng(product_id: str, seed: int) -> random.Random:
+    digest = hashlib.sha256(f"{seed}:{product_id}".encode("utf-8")).hexdigest()
+    return random.Random(int(digest[:16], 16))
+
+
+def choose_masked_modalities(record: ProductRecord, seed: int) -> tuple[str, ...]:
+    """Pick 1-2 maskable modalities to hide on an otherwise complete sample."""
+    present = [name for name in MASKABLE_MODALITIES if modality_presence(record)[name]]
+    if not present:
+        return ()
+    rng = mask_rng(record.product_id, seed)
+    mask_count = 1 if len(present) == 1 or rng.random() < 0.7 else 2
+    shuffled = present[:]
+    rng.shuffle(shuffled)
+    return tuple(sorted(shuffled[:mask_count]))
+
+
+def apply_modality_masks(record: ProductRecord, masked_modalities: tuple[str, ...]) -> ProductRecord:
+    if not masked_modalities:
+        return record
+    updates = {}
+    if "title" in masked_modalities:
+        updates["title"] = ""
+    if "pv" in masked_modalities:
+        updates["pv"] = ""
+    if "video_url" in masked_modalities:
+        updates["video_url"] = ""
+    return replace(record, **updates)
 
 
 def parse_pv(pv: str) -> Dict[str, str]:
@@ -263,27 +333,132 @@ def diversity(candidate: ScoredRecord, selected: list[ScoredRecord], title_count
     return 0.6 * token_novelty + 0.25 * merchant_novelty + 0.15 * host_novelty
 
 
-def select_products(candidates: Dict[str, list[ScoredRecord]], per_category: int) -> list[Tuple[ScoredRecord, float, float]]:
-    selected: list[Tuple[ScoredRecord, float, float]] = []
-    for label in sorted(candidates):
-        remaining = candidates[label][:]
-        chosen: list[ScoredRecord] = []
-        token_counts: Counter[str] = Counter()
-        merchants: set[str] = set()
-        hosts: set[str] = set()
-        while remaining and len(chosen) < per_category:
-            best = max(remaining, key=lambda item: (item.base_score + 0.1 * diversity(item, chosen, token_counts, merchants, hosts), item.record.product_id))
-            div = diversity(best, chosen, token_counts, merchants, hosts)
-            score = best.base_score + 0.1 * div
-            selected.append((best, score, div))
-            chosen.append(best)
-            token_counts.update(best.title_tokens)
-            if best.merchant:
-                merchants.add(best.merchant)
-            if best.image_host:
-                hosts.add(best.image_host)
-            remaining.remove(best)
-    return selected
+def _greedy_select(
+    remaining: list[ScoredRecord], count: int,
+) -> tuple[list[tuple[ScoredRecord, float, float]], list[ScoredRecord]]:
+    """Pick `count` diverse, high-scoring products from `remaining`."""
+    chosen: list[ScoredRecord] = []
+    selected: list[tuple[ScoredRecord, float, float]] = []
+    token_counts: Counter[str] = Counter()
+    merchants: set[str] = set()
+    hosts: set[str] = set()
+    pool = remaining[:]
+    while pool and len(chosen) < count:
+        best = max(
+            pool,
+            key=lambda item: (
+                item.base_score + 0.1 * diversity(item, chosen, token_counts, merchants, hosts),
+                item.record.product_id,
+            ),
+        )
+        div = diversity(best, chosen, token_counts, merchants, hosts)
+        score = best.base_score + 0.1 * div
+        selected.append((best, score, div))
+        chosen.append(best)
+        token_counts.update(best.title_tokens)
+        if best.merchant:
+            merchants.add(best.merchant)
+        if best.image_host:
+            hosts.add(best.image_host)
+        pool.remove(best)
+    return selected, pool
+
+
+def select_products(
+    candidates: Dict[str, list[ScoredRecord]],
+    per_category: int,
+    full_modality_ratio: float = 0.8,
+    seed: int = 42,
+) -> tuple[list[tuple[ScoredRecord, float, float, SelectionMeta]], list[dict[str, object]]]:
+    """Select products per super-category with an 80/20 full/incomplete modality mix."""
+    if not 0 < full_modality_ratio < 1:
+        raise ValueError("full_modality_ratio must be in (0, 1).")
+    full_quota = round(per_category * full_modality_ratio)
+    incomplete_quota = per_category - full_quota
+    selected: list[tuple[ScoredRecord, float, float, SelectionMeta]] = []
+    summary_rows: list[dict[str, object]] = []
+
+    for super_category in sorted(candidates):
+        pool = [item for item in candidates[super_category] if is_selectable(item.record)]
+        full_pool = [item for item in pool if is_full_modality(item.record)]
+        incomplete_pool = [item for item in pool if not is_full_modality(item.record)]
+
+        full_selected, full_remaining = _greedy_select(full_pool, full_quota)
+        selected_ids = {item.record.product_id for item, _, _ in full_selected}
+
+        incomplete_candidates = [
+            item for item in incomplete_pool if item.record.product_id not in selected_ids
+        ]
+        incomplete_selected, _ = _greedy_select(incomplete_candidates, incomplete_quota)
+        selected_ids.update(item.record.product_id for item, _, _ in incomplete_selected)
+
+        masked_selected: list[tuple[ScoredRecord, float, float, SelectionMeta]] = []
+        gap = incomplete_quota - len(incomplete_selected)
+        if gap > 0:
+            fill_pool = [
+                item for item in full_remaining if item.record.product_id not in selected_ids
+            ]
+            fill_selected, _ = _greedy_select(fill_pool, gap)
+            for item, score, div in fill_selected:
+                masked = choose_masked_modalities(item.record, seed)
+                masked_selected.append(
+                    (
+                        item,
+                        score,
+                        div,
+                        SelectionMeta(
+                            modality_complete=False,
+                            modality_source="masked",
+                            masked_modalities=masked,
+                            modality_present=modality_presence(item.record),
+                        ),
+                    )
+                )
+                selected_ids.add(item.record.product_id)
+
+        for item, score, div in full_selected:
+            selected.append(
+                (
+                    item,
+                    score,
+                    div,
+                    SelectionMeta(
+                        modality_complete=True,
+                        modality_source="natural_full",
+                        masked_modalities=(),
+                        modality_present=modality_presence(item.record),
+                    ),
+                )
+            )
+        for item, score, div in incomplete_selected:
+            selected.append(
+                (
+                    item,
+                    score,
+                    div,
+                    SelectionMeta(
+                        modality_complete=False,
+                        modality_source="natural_incomplete",
+                        masked_modalities=missing_modalities(item.record),
+                        modality_present=modality_presence(item.record),
+                    ),
+                )
+            )
+        selected.extend(masked_selected)
+
+        summary_rows.append(
+            {
+                "super_category": super_category,
+                "requested": per_category,
+                "selected": len(full_selected) + len(incomplete_selected) + len(masked_selected),
+                "full_modality": len(full_selected),
+                "natural_incomplete": len(incomplete_selected),
+                "masked_incomplete": len(masked_selected),
+                "full_quota": full_quota,
+                "incomplete_quota": incomplete_quota,
+            }
+        )
+    return selected, summary_rows
 
 
 def folder_name(super_category: str) -> str:
@@ -354,21 +529,53 @@ def download_url(
 
 
 def download_product(
-    scored: ScoredRecord, score: float, diversity_score: float, super_category: str,
-    dataset_dir: Path, args: argparse.Namespace, stop_event: threading.Event,
+    scored: ScoredRecord,
+    score: float,
+    diversity_score: float,
+    selection: SelectionMeta,
+    super_category: str,
+    dataset_dir: Path,
+    args: argparse.Namespace,
+    stop_event: threading.Event,
 ) -> Dict[str, object]:
-    record = scored.record
+    record = apply_modality_masks(scored.record, selection.masked_modalities)
     directory = folder_name(super_category)
     category_dir = dataset_dir / directory
     category_images, category_videos = category_dir / "images", category_dir / "videos"
     category_images.mkdir(parents=True, exist_ok=True)
     category_videos.mkdir(parents=True, exist_ok=True)
-    image_path, image_status = download_url(record.image_url, category_images / record.product_id, ".jpg", args.timeout, args.retries, args.overwrite, stop_event, args.stop_on_network_error)
-    video_path, video_status = download_url(record.video_url, category_videos / record.product_id, ".mp4", args.timeout, args.retries, args.overwrite, stop_event, args.stop_on_network_error)
-    return {"id": record.product_id, "title": record.title, "label": record.label, "super_category": super_category, "pv": record.pv,
-            "image_url": record.image_url, "video_url": record.video_url, "score": round(score, 6),
-            "score_components": {"completeness": round(scored.completeness, 6), "text_quality": round(scored.text_quality, 6), "merchant_score": round(scored.merchant_score, 6), "diversity": round(diversity_score, 6)},
-            "image_path": image_path, "video_path": video_path, "image_status": image_status, "video_status": video_status}
+    image_path, image_status = download_url(
+        record.image_url, category_images / record.product_id, ".jpg",
+        args.timeout, args.retries, args.overwrite, stop_event, args.stop_on_network_error,
+    )
+    video_path, video_status = download_url(
+        record.video_url, category_videos / record.product_id, ".mp4",
+        args.timeout, args.retries, args.overwrite, stop_event, args.stop_on_network_error,
+    )
+    return {
+        "id": record.product_id,
+        "title": record.title,
+        "label": record.label,
+        "super_category": super_category,
+        "pv": record.pv,
+        "image_url": record.image_url,
+        "video_url": record.video_url,
+        "score": round(score, 6),
+        "score_components": {
+            "completeness": round(scored.completeness, 6),
+            "text_quality": round(scored.text_quality, 6),
+            "merchant_score": round(scored.merchant_score, 6),
+            "diversity": round(diversity_score, 6),
+        },
+        "modality_complete": selection.modality_complete,
+        "modality_source": selection.modality_source,
+        "masked_modalities": list(selection.masked_modalities),
+        "modality_present": selection.modality_present,
+        "image_path": image_path,
+        "video_path": video_path,
+        "image_status": image_status,
+        "video_status": video_status,
+    }
 
 
 def parse_args() -> argparse.Namespace:
@@ -384,6 +591,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--super-categories", type=int, default=50, help="Number of largest super-categories to include.")
     parser.add_argument("--per-super-category", "--per-category", dest="per_super_category", type=int, default=200,
                         help="Maximum selected products per super-category.")
+    parser.add_argument("--full-modality-ratio", type=float, default=0.8,
+                        help="Share of each super-category that must have all modalities present.")
+    parser.add_argument("--selection-seed", type=int, default=42,
+                        help="Seed for deterministic artificial modality masking.")
     parser.add_argument("--candidate-pool", type=int, default=1000, help="Best pre-diversification candidates retained per super-category.")
     parser.add_argument("--min-category-samples", type=int, default=None,
                         help="Minimum metadata rows per label; defaults to --per-category.")
@@ -406,6 +617,8 @@ def main() -> int:
     args = parse_args()
     if args.super_categories <= 0 or args.per_super_category <= 0 or args.candidate_pool < args.per_super_category:
         raise SystemExit("--super-categories and --per-super-category must be positive; --candidate-pool must be at least --per-super-category.")
+    if not 0 < args.full_modality_ratio < 1:
+        raise SystemExit("--full-modality-ratio must be between 0 and 1.")
     if args.max_products is not None and args.max_products <= 0:
         raise SystemExit("--max-products must be positive.")
     min_samples = args.min_category_samples or args.per_super_category
@@ -459,10 +672,23 @@ def main() -> int:
         label: [entry[2] for entry in sorted(heap, key=lambda entry: (-entry[0], entry[1]))]
         for label, heap in candidate_heaps.items()
     }
-    selected = select_products(candidates, args.per_super_category)
+    selected, modality_summary = select_products(
+        candidates,
+        args.per_super_category,
+        full_modality_ratio=args.full_modality_ratio,
+        seed=args.selection_seed,
+    )
     for row in category_rows:
-        row["selected"] = sum(taxonomy.get(item.record.label) == row["super_category"] for item, _, _ in selected)
-    (output_dir / "category_selection.json").write_text(json.dumps(category_rows, ensure_ascii=False, indent=2), encoding="utf-8")
+        row["selected"] = sum(
+            taxonomy.get(item.record.label) == row["super_category"]
+            for item, _, _, _ in selected
+        )
+    (output_dir / "category_selection.json").write_text(
+        json.dumps(category_rows, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    (output_dir / "modality_selection.json").write_text(
+        json.dumps(modality_summary, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     manifest_path = output_dir / "manifest.jsonl"
     existing_ids: set[str] = set()
     if args.resume and manifest_path.is_file():
@@ -484,13 +710,42 @@ def main() -> int:
     if len(target_selected) < target_count:
         raise SystemExit(f"Only {len(target_selected)} selected records are available; cannot reach --max-products={target_count}.")
     pending = [entry for entry in target_selected if entry[0].record.product_id not in existing_ids]
-    metadata = {item.record.product_id: {"title": item.record.title, "label": item.record.label, "super_category": taxonomy[item.record.label], "url": item.record.image_url, "video": item.record.video_url, "pv": item.record.pv, "score": score} for item, score, _ in target_selected}
+    metadata = {}
+    for item, score, _, selection in target_selected:
+        export_record = apply_modality_masks(item.record, selection.masked_modalities)
+        metadata[item.record.product_id] = {
+            "title": export_record.title,
+            "label": export_record.label,
+            "super_category": taxonomy[item.record.label],
+            "url": export_record.image_url,
+            "video": export_record.video_url,
+            "pv": export_record.pv,
+            "score": score,
+            "modality_complete": selection.modality_complete,
+            "modality_source": selection.modality_source,
+            "masked_modalities": list(selection.masked_modalities),
+            "modality_present": selection.modality_present,
+        }
     (output_dir / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"Selected {len(selected)} products across {len(selected_super_categories)} super-categories. Pass 3/3: {len(existing_ids)} existing, {len(pending)} pending, target {target_count}...", flush=True)
+    modality_counts = Counter(selection.modality_source for _, _, _, selection in target_selected)
+    print(
+        f"Selected {len(selected)} products across {len(selected_super_categories)} super-categories "
+        f"(full={modality_counts.get('natural_full', 0)}, "
+        f"natural_incomplete={modality_counts.get('natural_incomplete', 0)}, "
+        f"masked={modality_counts.get('masked', 0)}). "
+        f"Pass 3/3: {len(existing_ids)} existing, {len(pending)} pending, target {target_count}...",
+        flush=True,
+    )
     manifest_mode = "a" if args.resume else "w"
     stop_event = threading.Event()
     with manifest_path.open(manifest_mode, encoding="utf-8") as manifest, ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futures = [pool.submit(download_product, item, score, div, taxonomy[item.record.label], output_dir, args, stop_event) for item, score, div in pending]
+        futures = [
+            pool.submit(
+                download_product, item, score, div, selection,
+                taxonomy[item.record.label], output_dir, args, stop_event,
+            )
+            for item, score, div, selection in pending
+        ]
         for completed, future in enumerate(as_completed(futures), 1):
             try:
                 row = future.result()

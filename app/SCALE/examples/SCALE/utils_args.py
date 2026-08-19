@@ -71,7 +71,7 @@ def get_args():
     )
     parser.add_argument(
         "--num_train_epochs",
-        default=20.0,
+        default=5.0,
         type=float,
         help="Total number of training epochs to perform.",
     )
@@ -186,7 +186,31 @@ def get_args():
         "--audio_file_dir",type=str
     )
     parser.add_argument(
-        "--audio_len",type=int
+        "--audio_feature_dir", type=str,
+        help="Directory of precomputed mel-spectrogram .npy files (paper audio sidecars).",
+    )
+    parser.add_argument(
+        "--audio_len",type=int, default=12
+    )
+    parser.add_argument(
+        "--feature_dir", type=str, default="feature_data",
+        help="Output directory for extracted feature .npy files.",
+    )
+    parser.add_argument(
+        "--split", type=str, default="",
+        help="Optional split name tag for feature extraction logging.",
+    )
+    parser.add_argument(
+        "--return_hidden", action="store_true",
+        help="Return hidden states instead of pooled features (classification eval).",
+    )
+    parser.add_argument(
+        "--zero_shot", action="store_true",
+        help="Zero-shot evaluation flag (legacy shell scripts).",
+    )
+    parser.add_argument(
+        "--ids_file", type=str,
+        help="Optional JSON list of product IDs to restrict feature extraction.",
     )
 
     parser.add_argument(

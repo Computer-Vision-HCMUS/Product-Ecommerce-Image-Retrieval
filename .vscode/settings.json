@@ -1,0 +1,15 @@
+{
+  "git.untrackedChanges": "hidden",
+  "git.ignoreLimitWarning": true,
+  "files.watcherExclude": {
+    "**/app/datasets/downloaded_*/**": true,
+    "**/artifacts/**": true,
+    "**/__pycache__/**": true,
+    "**/*.lmdb/**": true
+  },
+  "search.exclude": {
+    "**/app/datasets/downloaded_*/**": true,
+    "**/artifacts/**": true,
+    "**/node_modules/**": true
+  }
+}
