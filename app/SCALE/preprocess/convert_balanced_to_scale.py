@@ -51,9 +51,15 @@ def main() -> None:
         title = str(row.get("title") or meta.get("title") or "").strip()
         pv = str(row.get("pv") or meta.get("pv") or "").strip()
         label = str(row.get("label") or meta.get("label") or "").strip()
+        super_category = str(row.get("super_category") or meta.get("super_category") or "").strip()
         if not title and not label:
             continue
-        id_label[product_id] = {"title": title, "pv": pv, "label": label}
+        id_label[product_id] = {
+            "title": title,
+            "pv": pv,
+            "label": label,
+            "super_category": super_category,
+        }
         labels.add(label)
         path_manifest[product_id] = {
             "image_path": row.get("image_path"),

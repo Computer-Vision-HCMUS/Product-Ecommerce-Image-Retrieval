@@ -39,36 +39,94 @@ def feature_type_flags(feature_types: list[str]) -> list[str]:
     return flags
 
 
+def ensure_product_catalog(work: Path, py: str, repo: Path, env: dict[str, str]) -> None:
+    """Ensure id_label.json contains super_category for attribute reranking."""
+    id_label_path = work / "id_label.json"
+    if not id_label_path.is_file():
+        return
+    id_label = json.loads(id_label_path.read_text(encoding="utf-8"))
+    sample = next(iter(id_label.values()), {})
+    if sample.get("super_category"):
+        return
+    dataset_dir = repo / "app" / "datasets" / "downloaded_m5product_balanced"
+    if not (dataset_dir / "metadata.json").is_file():
+        print("Warning: super_category missing and dataset metadata not found; rerank may be weak.")
+        return
+    os_env = {**dict(**{k: v for k, v in __import__("os").environ.items()}), **env}
+    subprocess.check_call(
+        [
+            py,
+            str(repo / "app" / "SCALE" / "preprocess" / "enrich_product_catalog.py"),
+            "--id-label", str(id_label_path),
+            "--dataset-dir", str(dataset_dir),
+        ],
+        env=os_env,
+    )
+
+
 def run_paper_retrieval_eval(
     py: str,
     scale: Path,
     work: Path,
     feature_types: list[str],
     env: dict[str, str],
+    *,
+    pipeline: str = "baseline",
+    candidate_n: int = 100,
+    rerank_lambda: float = 0.7,
+    query_mode: str = "multimodal",
 ) -> dict:
-    """Run retrieval_unit_id_list_v2 + evaluate_unit_v2 (paper benchmark protocol)."""
+    """Run retrieval + evaluate_unit_v2 (baseline or improved reranking)."""
+    from indexing.pipeline_config import PipelineMode, PipelinePaths
+
+    mode = PipelineMode.from_value(pipeline)
+    paths = PipelinePaths(work, mode)
     os_env = {**dict(**{k: v for k, v in __import__("os").environ.items()}), **env}
     query_dir = work / "features" / "test"
     gallery_dir = work / "features" / "gallery"
-    retrieval_dir = work / "retrieval_results"
-    metric_dir = work / "retrieval_metric"
+    retrieval_dir = paths.retrieval_results
+    metric_dir = paths.retrieval_metric
     retrieval_dir.mkdir(parents=True, exist_ok=True)
     metric_dir.mkdir(parents=True, exist_ok=True)
 
     type_flags = feature_type_flags(feature_types)
-    subprocess.check_call(
-        [
-            py,
-            str(scale / "retrieval_unit_id_list_v2.py"),
-            "--query_feature_path", str(query_dir),
-            "--gallery_feature_path", str(gallery_dir),
-            "--retrieval_results_path", str(retrieval_dir),
-            "--max_topk", "10",
-            *type_flags,
-        ],
-        cwd=str(scale.parent.parent),
-        env=os_env,
-    )
+    if mode is PipelineMode.IMPROVED:
+        repo = scale.parent.parent
+        ensure_product_catalog(work, py, repo, env)
+        app_dir = scale.parent
+        for feature_type in feature_types:
+            subprocess.check_call(
+                [
+                    py,
+                    str(app_dir / "evaluation" / "run_improved_retrieval.py"),
+                    "--query-feature-path", str(query_dir),
+                    "--gallery-feature-path", str(gallery_dir),
+                    "--catalog", str(work / "id_label.json"),
+                    "--retrieval-results-path", str(retrieval_dir),
+                    "--feature-type", feature_type,
+                    "--candidate-n", str(candidate_n),
+                    "--output-topk", "10",
+                    "--lambda-emb", str(rerank_lambda),
+                    "--query-mode", query_mode,
+                ],
+                cwd=str(app_dir),
+                env=os_env,
+            )
+    else:
+        subprocess.check_call(
+            [
+                py,
+                str(scale / "retrieval_unit_id_list_v2.py"),
+                "--query_feature_path", str(query_dir),
+                "--gallery_feature_path", str(gallery_dir),
+                "--retrieval_results_path", str(retrieval_dir),
+                "--max_topk", "10",
+                *type_flags,
+            ],
+            cwd=str(scale.parent),
+            env=os_env,
+        )
+
     subprocess.check_call(
         [
             py,
@@ -78,15 +136,15 @@ def run_paper_retrieval_eval(
             "--output_metric_dir", str(metric_dir),
             *type_flags,
         ],
-        cwd=str(scale.parent.parent),
+        cwd=str(scale.parent),
         env=os_env,
     )
 
     metric_path = metric_dir / "metric_results.json"
     results = json.loads(metric_path.read_text(encoding="utf-8"))
-    benchmark_path = work / "evaluation_benchmark.json"
+    benchmark_path = paths.evaluation_benchmark
     benchmark_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
-    print(f"Paper benchmark metrics: {benchmark_path}")
+    print(f"Paper benchmark metrics ({mode.value}): {benchmark_path}")
     for feature_type in feature_types:
         if feature_type not in results:
             continue
@@ -137,6 +195,30 @@ def main() -> None:
         nargs="+",
         default=["tpiva"],
         help="Feature types for paper retrieval eval (default: tpiva = 5 modalities)",
+    )
+    parser.add_argument(
+        "--pipeline",
+        choices=("baseline", "improved"),
+        default="baseline",
+        help="Retrieval pipeline: baseline (embedding only) or improved (HNSW coarse + attribute rerank)",
+    )
+    parser.add_argument(
+        "--candidate-n",
+        type=int,
+        default=100,
+        help="Coarse candidate count N for improved pipeline (stage 1)",
+    )
+    parser.add_argument(
+        "--rerank-lambda",
+        type=float,
+        default=0.7,
+        help="Blend weight lambda for S_tong = lambda*S_emb + (1-lambda)*S_attr",
+    )
+    parser.add_argument(
+        "--query-mode",
+        choices=("multimodal", "image_only"),
+        default="multimodal",
+        help="Improved eval query mode: multimodal (scenario A) or image_only (scenario B)",
     )
     args = parser.parse_args()
 
@@ -252,19 +334,33 @@ def main() -> None:
     else:
         print("Skipping feature extraction")
 
-    run_paper_retrieval_eval(py, scale, work, args.eval_feature_types, env)
+    run_paper_retrieval_eval(
+        py,
+        scale,
+        work,
+        args.eval_feature_types,
+        env,
+        pipeline=args.pipeline,
+        candidate_n=args.candidate_n,
+        rerank_lambda=args.rerank_lambda,
+        query_mode=args.query_mode,
+    )
 
+    from indexing.pipeline_config import PipelinePaths, PipelineMode
+
+    paths = PipelinePaths(work, PipelineMode.from_value(args.pipeline))
     subprocess.check_call(
         [
             py, str(repo / "app" / "indexing" / "build_index.py"),
             "--embeddings", str(work / "features" / "gallery" / "tpiva_feature_np.npy"),
             "--ids", str(work / "features" / "gallery" / "id.npy"),
-            "--output-dir", str(work / "index_hnsw"),
+            "--output-dir", str(paths.index_dir),
             "--index-type", "hnsw",
         ],
         cwd=str(repo),
     )
-    print("Pipeline resume complete.")
+    print(f"Pipeline resume complete ({args.pipeline}).")
+    print(f"  Benchmark: {paths.evaluation_benchmark}")
 
 
 if __name__ == "__main__":

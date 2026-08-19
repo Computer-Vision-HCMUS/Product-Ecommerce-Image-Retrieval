@@ -54,3 +54,9 @@ frontend/dist/
 !.vscode/settings.json
 Thumbs.db
 Desktop.ini
+
+# Eval benchmark outputs (track only the two comparison JSON files)
+output/**
+!output/
+!output/improvement.json
+!output/non-improvement.json

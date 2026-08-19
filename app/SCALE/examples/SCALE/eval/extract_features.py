@@ -196,7 +196,7 @@ def main():
     for step, batch in enumerate(tqdm(train_dataset)):
         image_id = batch[-1]
         batch = batch[:-1]
-        batch = tuple(t.cuda(device=device, non_blocking=True) for t in batch)
+        batch = tuple(t.to(device=device, non_blocking=True) for t in batch)
 
         input_ids, input_mask, segment_ids, lm_label_ids, is_next, \
         pv_input_ids, pv_input_mask, pv_segment_ids, em_label_ids, \

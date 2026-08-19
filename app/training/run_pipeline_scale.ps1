@@ -8,6 +8,8 @@ param(
     [string]$DatasetDir = "app/datasets/downloaded_m5product_balanced",
     [string]$SplitsDir = "artifacts/scale_paper_splits",
     [string]$WorkDir = "artifacts/scale_paper",
+    [ValidateSet("baseline", "improved")]
+    [string]$Pipeline = "baseline",
     [int]$Limit = 0,
     [switch]$PrepareOnly,
     [switch]$SkipFeatures,
@@ -147,14 +149,15 @@ foreach ($split in @("test", "gallery")) {
 }
 Pop-Location
 
-Write-Host "=== Phase 5–6: Paper eval + Faiss (evaluate_unit_v2) ==="
+Write-Host "=== Phase 5–6: Paper eval + Faiss ($Pipeline) ==="
 if (-not $SkipEval) {
     & $Python "$scaleRoot\preprocess\resume_pipeline.py" `
         --work-dir $WorkDir `
         --skip-wait `
         --skip-lmdb `
         --skip-pretrain `
-        --skip-extract
+        --skip-extract `
+        --pipeline $Pipeline
 } else {
     & $Python app\indexing\build_index.py `
         --embeddings "$WorkDir\features\gallery\tpiva_feature_np.npy" `
@@ -165,5 +168,10 @@ if (-not $SkipEval) {
 
 Write-Host "Pipeline complete."
 Write-Host "  Work dir: $WorkDir"
-Write-Host "  Benchmark metrics: $WorkDir\evaluation_benchmark.json"
-Write-Host "  API: `$env:SCALE_BACKEND='paper'; `$env:SCALE_WORK_DIR='$WorkDir'; powershell -File scripts/start_backend.ps1"
+Write-Host "  Pipeline: $Pipeline"
+if ($Pipeline -eq "improved") {
+    Write-Host "  Benchmark metrics: $WorkDir\evaluation_benchmark_improved.json"
+} else {
+    Write-Host "  Benchmark metrics: $WorkDir\evaluation_benchmark.json"
+}
+Write-Host "  API: `$env:SCALE_BACKEND='paper'; `$env:SCALE_PIPELINE='$Pipeline'; `$env:SCALE_WORK_DIR='$WorkDir'; powershell -File scripts/start_backend.ps1"

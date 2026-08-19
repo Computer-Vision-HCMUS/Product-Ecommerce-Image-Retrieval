@@ -830,14 +830,15 @@ class BertEncoder(nn.Module):
         self.loss_fct = CrossEntropyLoss(ignore_index=-1)
 
     def info_nce_loss(self, features, batch_size,n_views):
+        device = features.device
         labels = torch.cat([torch.arange(batch_size) for i in range(n_views)], dim=0)
         labels = (labels.unsqueeze(0) == labels.unsqueeze(1)).float()
-        labels = labels.to(devices)
+        labels = labels.to(device)
         features = F.normalize(features, dim=1)
 
         similarity_matrix = torch.matmul(features, features.T)
         # discard the main diagonal from both: labels and similarities matrix
-        mask = torch.eye(labels.shape[0], dtype=torch.bool).to(devices)
+        mask = torch.eye(labels.shape[0], dtype=torch.bool, device=device)
         labels = labels[~mask].view(labels.shape[0], -1)
         similarity_matrix = similarity_matrix[~mask].view(similarity_matrix.shape[0], -1)
 
@@ -847,7 +848,7 @@ class BertEncoder(nn.Module):
         # print("negatives: ", negatives.size())
 
         logits = torch.cat([positives, negatives], dim=1)
-        labels = torch.zeros(logits.shape[0], dtype=torch.long).to(devices)
+        labels = torch.zeros(logits.shape[0], dtype=torch.long, device=device)
 
         logits = logits / self.temperature
         return logits, labels
@@ -876,7 +877,7 @@ class BertEncoder(nn.Module):
         return loss / (2 * N)
 
     def graph_construct(self,modality_feature):  # 5*B*H
-        batch_modality_graph = torch.zeros([modality_feature.shape[0], modality_feature.shape[0]]).to(devices)
+        batch_modality_graph = torch.zeros([modality_feature.shape[0], modality_feature.shape[0]], device=modality_feature.device)
         for b_i in range(modality_feature.shape[1]):
             group_modality = torch.reshape(modality_feature[:, b_i, :],
                                            (modality_feature.shape[0], modality_feature.shape[2]))
@@ -889,8 +890,8 @@ class BertEncoder(nn.Module):
         return batch_modality_graph, torch.diag(batch_modality_graph) / torch.sum(torch.diag(batch_modality_graph))
 
     def graph_construct_per_sample(self,modality_feature):  # 5*B*H
-        batch_modality_graph = torch.zeros([modality_feature.shape[1], modality_feature.shape[0], modality_feature.shape[0]]).to(devices)
-        diag_mask = torch.zeros([modality_feature.shape[1], modality_feature.shape[0]]).to(devices)
+        batch_modality_graph = torch.zeros([modality_feature.shape[1], modality_feature.shape[0], modality_feature.shape[0]], device=modality_feature.device)
+        diag_mask = torch.zeros([modality_feature.shape[1], modality_feature.shape[0]], device=modality_feature.device)
         for b_i in range(modality_feature.shape[1]):
             group_modality = torch.reshape(modality_feature[:, b_i, :],
                                            (modality_feature.shape[0], modality_feature.shape[2]))
@@ -1676,7 +1677,7 @@ class BertForMultiModalPreTraining(BertPreTrainedModel):
             self.vis_criterion = nn.KLDivLoss(reduction="none") 
 
     def graph_construct(self,modality_feature):  # 5*B*H
-        batch_modality_graph = torch.zeros([modality_feature.shape[0], modality_feature.shape[0]]).to(devices)
+        batch_modality_graph = torch.zeros([modality_feature.shape[0], modality_feature.shape[0]], device=modality_feature.device)
         for b_i in range(modality_feature.shape[1]):
             group_modality = torch.reshape(modality_feature[:, b_i, :],
                                            (modality_feature.shape[0], modality_feature.shape[2]))
@@ -1689,8 +1690,8 @@ class BertForMultiModalPreTraining(BertPreTrainedModel):
         return batch_modality_graph, torch.diag(batch_modality_graph) / torch.sum(torch.diag(batch_modality_graph))
 
     def graph_construct_per_sample(self,modality_feature):  # 5*B*H
-        batch_modality_graph = torch.zeros([modality_feature.shape[1], modality_feature.shape[0], modality_feature.shape[0]]).to(devices)
-        diag_mask = torch.zeros([modality_feature.shape[1], modality_feature.shape[0]]).to(devices)
+        batch_modality_graph = torch.zeros([modality_feature.shape[1], modality_feature.shape[0], modality_feature.shape[0]], device=modality_feature.device)
+        diag_mask = torch.zeros([modality_feature.shape[1], modality_feature.shape[0]], device=modality_feature.device)
         for b_i in range(modality_feature.shape[1]):
             group_modality = torch.reshape(modality_feature[:, b_i, :],
                                            (modality_feature.shape[0], modality_feature.shape[2]))

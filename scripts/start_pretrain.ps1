@@ -9,7 +9,7 @@ $ErrorActionPreference = "Continue"
 $repo = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $repo
 
-$py = "C:\Users\SenetUser\AppData\Local\Programs\Python\Python312\python.exe"
+$py = if ($env:SCALE_PYTHON) { $env:SCALE_PYTHON } else { "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe" }
 $work = Join-Path $repo "artifacts\scale_paper"
 $log = Join-Path $work "pretrain.log"
 $examples = Join-Path $repo "app\SCALE\examples\SCALE"

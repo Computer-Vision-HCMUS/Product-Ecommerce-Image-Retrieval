@@ -12,11 +12,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from api.schemas import HealthResponse, SearchResponse, SearchResultItem, DEFAULT_FUSION_WEIGHTS, DEFAULT_WORK_DIR
-from indexing.search import ProductIndex
+from indexing.improved_search import build_search_backend
+from indexing.pipeline_config import PipelineMode
+from indexing.rerank import RerankWeights
 from scale_runtime.fusion_encoder import ScaleFusionEncoder
 from scale_runtime.modality import ProductModalities
 
 BACKEND = os.getenv("SCALE_BACKEND", "siglip").lower()
+PIPELINE_MODE = PipelineMode.from_value(os.getenv("SCALE_PIPELINE", "baseline"))
+RERANK_CANDIDATES = int(os.getenv("SCALE_RERANK_CANDIDATES", "100"))
+RERANK_LAMBDA = float(os.getenv("SCALE_RERANK_LAMBDA", "0.7"))
 
 app = FastAPI(title="SCALE Product Retrieval API", version="1.0.0")
 app.add_middleware(
@@ -45,8 +50,14 @@ def get_encoder():
 
 
 @lru_cache(maxsize=1)
-def get_index() -> ProductIndex:
-    return ProductIndex(INDEX_DIR)
+def get_search_backend():
+    weights = RerankWeights(lambda_emb=RERANK_LAMBDA)
+    return build_search_backend(
+        WORK_DIR,
+        PIPELINE_MODE,
+        candidate_n=RERANK_CANDIDATES,
+        weights=weights,
+    )
 
 
 @lru_cache(maxsize=1)
@@ -87,10 +98,14 @@ async def _save_upload(upload: UploadFile | None, suffix: str) -> str | None:
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     records = get_records()
-    index = get_index()
+    backend = get_search_backend()
+    if hasattr(backend, "_index"):
+        index_count = len(backend._index._ids)
+    else:
+        index_count = len(backend._ids)
     return HealthResponse(
         status="ok",
-        index_count=len(index._ids),
+        index_count=index_count,
         records_count=len(records),
         fusion_weights_loaded=BACKEND != "paper" and FUSION_WEIGHTS.is_file(),
     )
@@ -137,8 +152,24 @@ async def search(
     try:
         embedding, presence = get_encoder().encode_product(product)
         records = get_records()
+        search_backend = get_search_backend()
+        query_meta = {
+            "title": product.title,
+            "pv": product.pv,
+            "label": "",
+            "super_category": "",
+        }
+        if PIPELINE_MODE is PipelineMode.IMPROVED:
+            raw_hits = search_backend.search(
+                embedding,
+                top_k,
+                query_meta=query_meta,
+            )
+        else:
+            raw_hits = search_backend.search(embedding, top_k)
+
         results = []
-        for product_id, score in get_index().search(embedding, top_k):
+        for product_id, score in raw_hits:
             item = records.get(product_id, {})
             results.append(
                 SearchResultItem(
