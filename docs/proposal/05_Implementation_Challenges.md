@@ -1,35 +1,67 @@
 # 05. Các thách thức thực hiện
 
-## 5.1. Cách dùng thuật ngữ trong proposal
+Hai thách thức trung tâm lấy từ M5Product/SCALE: **Modality Interaction** và **Modality Noise**. Thách thức bổ sung trên slide là nhiễu thị giác trên ảnh listing.
 
-Mục 02 định nghĩa bốn gap: Sensory, Semantic, Context-Query và Model Gap. Mục này không tạo thêm một bộ gap khác; mỗi mục bên dưới chỉ mô tả cách một gap xuất hiện khi triển khai hệ thống. Ngoài bốn gap, Mục 5.6 là ràng buộc hệ thống về quy mô và cập nhật catalog.
+## 5.1. Thách thức 1: Modality Interaction
 
-## 5.2. Sensory Gap: ảnh query khác ảnh catalog
+Làm sao mô hình hóa tương tác giữa nhiều modality khi mỗi nhánh chỉ chứa một phần thông tin sản phẩm?
 
-Ảnh query thường do người dùng chụp hoặc trích từ mạng xã hội, nên có thể bị nén, mờ, thiếu sáng, chụp nghiêng, che khuất hoặc có nhiều vật thể. Ngược lại, ảnh catalog thường có nền sạch và sản phẩm chiếm phần lớn khung hình. Đây là Sensory Gap, còn được gọi là *domain gap* trong bối cảnh query và catalog thuộc hai phân bố ảnh khác nhau.
+Ví dụ chiếc gối trong slide:
 
-Ví dụ, cùng một đôi giày có thể được catalog chụp trên nền trắng, còn query là ảnh chụp ngoài đường bị tối và chỉ thấy một phần thân giày. Nếu embedding học quá phụ thuộc vào nền hoặc ánh sáng catalog, kết quả retrieval sẽ lệch. Chất lượng ảnh tham chiếu vì vậy cần thể hiện rõ sản phẩm, ít vật thể gây nhiễu và có nhiều góc nhìn bổ sung [37].
+- Ảnh: màu sắc và hình dáng.
+- Text: gối Memory Foam.
+- Table: kích thước và chất liệu.
+- Video: độ đàn hồi.
+- Audio: lời giới thiệu người bán.
 
-## 5.3. Semantic Gap: giống ảnh nhưng sai sản phẩm
+Không modality nào đủ để mô tả toàn bộ. SCALE gọi mức bổ trợ semantic giữa hai nhánh là điểm alignment. Trong SIMCL, ma trận `S` học được chính là trọng số cho từng cặp loss liên-modality:
 
-Trong e-commerce, nhiều candidate có hình dáng tổng thể rất giống nhau nhưng khác ở logo, màu sắc, dung tích, kích thước, model, mã phiên bản hoặc vật liệu. Các chi tiết này có thể nhỏ hơn background hay bố cục, nhưng lại quyết định sản phẩm có phù hợp với người mua hay không.
+- `S(u, v)` lớn: hai nhánh bổ sung nhiều thông tin cho nhau.
+- `S(u, v)` nhỏ: hai nhánh ít hỗ trợ hoặc gần độc lập.
 
-Ví dụ, hai ốp lưng điện thoại có thể có cùng màu và họa tiết nhưng một chiếc dành cho iPhone 14, chiếc còn lại dành cho iPhone 15. Visual similarity cao không đủ để kết luận hai sản phẩm thay thế được nhau. Thách thức rõ hơn khi query chỉ là ảnh crop một bộ phận, còn candidate là ảnh đầy đủ có background hoặc nhiều item; TIGER-FG gọi sự lệch mức chi tiết này là *granularity disparity* [38].
+Nếu gán mọi cặp trọng số bằng nhau (cách mặc định của các model image–text), nhánh nhiễu hoặc ít complementary kéo representation lệch khi số modality tăng — đúng quan sát paper khi đi từ 2 lên 5 nhánh.
 
-## 5.4. Context-Query Gap: query thiếu ngữ cảnh và metadata có nhiễu
+## 5.2. Thách thức 2: Modality Noise
 
-Query thường chỉ là ảnh, trong khi candidate có thể có thêm title, category, brand và bảng thuộc tính. Sự không cân xứng thông tin này được TIGER-FG gọi là *modality disparity* [38]; trong proposal này, nó được xem là biểu hiện của Context-Query Gap: hệ thống phải quyết định khi nào metadata giúp làm rõ nhu cầu và khi nào nó gây nhiễu.
+Làm sao tận dụng sản phẩm có modality không đầy đủ?
 
-Ví dụ, ảnh một chiếc túi không cho biết người dùng muốn đúng mẫu, cùng brand hay chỉ cùng kiểu dáng. Nếu query có thêm text như “da thật” hoặc “cho laptop 14 inch”, metadata catalog có thể giúp xếp hạng chính xác hơn. Ngược lại, title quảng cáo quá ngắn, brand/category thiếu hoặc thuộc tính ghi không thống nhất sẽ làm semantic signal kém tin cậy.
+Ví dụ gối khác chỉ có ảnh và text “gối du lịch”, không table/video/audio. Embedding thiếu kích thước, chất liệu, độ đàn hồi.
 
-## 5.5. Model Gap: kiến thức model không bao quát mọi category
+Trong M5Product:
 
-Model chỉ học tốt những loại sản phẩm và thuộc tính xuất hiện đủ trong dữ liệu huấn luyện. Nếu training chủ yếu chứa giày dép và quần áo, embedding có thể phân biệt tốt trong hai nhóm này nhưng không biểu diễn chính xác cặp, ba lô hoặc trang sức. Đây là Model Gap: giới hạn kiến thức theo độ bao phủ category của model, không phải lỗi region extraction.
+- Khoảng **20%** mẫu không đủ năm modality; **~5%** unimodal.
+- Paper không loại mẫu thiếu: zero imputation, vẫn train.
 
-M5Product giúp giảm gap vì có 6.232 category và dữ liệu đa phương thức từ e-commerce thực tế. Text, table, video và audio cũng bổ sung tín hiệu cho các sản phẩm mà ảnh đơn lẻ khó mô tả. Tuy nhiên, M5Product không bảo đảm model sẽ đúng với mọi loại hàng: category long-tail, sản phẩm mới và category ngoài training vẫn có thể có chất lượng kém. Vì vậy, Model Gap được đánh giá bằng Precision@K/Recall@K và failure analysis tách theo nhóm category, thay vì chỉ dùng một metric trung bình toàn bộ dataset.
+Nếu discard mẫu thiếu thì mất dữ liệu và model không học được listing thực tế trên sàn.
 
-## 5.6. Ràng buộc hệ thống: quy mô catalog và dữ liệu động
+## 5.3. Thách thức khác: nhiễu trên ảnh
 
-Đây không phải một gap về dữ liệu hay mô hình, mà là ràng buộc vận hành. Chi phí exact search tăng tuyến tính theo số embedding, trong khi catalog e-commerce có thể gồm từ hàng chục nghìn đến hàng triệu product entry. Hệ thống phải cân bằng độ trễ với chất lượng xếp hạng giữa exact search và approximate nearest-neighbor search.
+SCALE dùng region feature (bottom-up Faster R-CNN, 10–36 ROI) vì ảnh e-commerce hiếm khi là object sạch trên nền trắng. Các ảnh dưới lấy từ slide đề tài.
 
-Catalog cũng thay đổi liên tục: sản phẩm mới được thêm, ảnh được thay thế, sản phẩm hết bán và metadata được hiệu chỉnh. Các cập nhật này có thể làm index, embedding và mapping metadata không đồng bộ. Vì vậy, hệ thống cần quy trình cập nhật tăng dần hoặc tái tạo index theo lô, đồng thời benchmark lại sau các đợt thay đổi lớn [37].
+**Nhiễu do chữ.** Chữ quảng cáo, giá, watermark, logo shop chiếm diện tích lớn hoặc đè lên sản phẩm. Detector/encoder nếu nhìn toàn ảnh sẽ nhúng cả banner.
+
+![Ảnh điện thoại gaming với chữ 5G, quà tặng và badge khuyến mãi](images/05-nhieu-chu-lenovo.png)
+
+**Hình 5.1.** Listing điện thoại: sản phẩm chính bị bao bởi chữ, badge “hiện hàng”, tai nghe và quạt tản nhiệt tặng kèm.
+
+**Nhiễu do nhiều biến thể trong một khung.** Cùng brand, khác dung tích/vòi bơm/móc treo. Query một size có thể kéo cả family SKU.
+
+![Nhiều chai nước rửa tay cùng brand khác dung tích](images/05-nhieu-bien-the-sanitizer.png)
+
+**Hình 5.2.** Một ảnh chứa nhiều biến thể cùng dòng — dễ nhầm instance-level retrieval thành category-level.
+
+**Nhiễu do người, đồ tặng, sản phẩm phụ.** Vòng trên cổ tay, cọ tặng kèm set makeup, hộp quà.
+
+![Vòng ngọc trai đeo trên tay, có đồng hồ cạnh đó](images/05-san-pham-tren-tay.png)
+
+**Hình 5.3.** Sản phẩm chính là vòng; tay người và dây đồng hồ là tín hiệu phụ.
+
+![Set dầu gội kèm cọ và hộp](images/05-qua-tang-kem-set.png)
+
+**Hình 5.4.** Set + quà tặng: model có thể nhúng nhầm cọ hoặc hộp thay vì chai.
+
+Hai hệ quả đi kèm (cũng trên slide): hàng trăm SKU giày/điện thoại trông gần giống nhau nhưng khác model; background trắng, màu, hoặc môi trường thật.
+
+## 5.4. Ràng buộc vận hành: catalog lớn và dữ liệu động
+
+Exact search tuyến tính không phù hợp catalog lớn. Listing được thêm liên tục. Chỉ mục cần nạp vector mới, liên kết láng giềng, không rebuild mỗi lần cập nhật — lý do HNSW ở Mục 07, tách khỏi hai thách thức representation của SCALE.

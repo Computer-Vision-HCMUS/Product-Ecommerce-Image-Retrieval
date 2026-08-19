@@ -1,63 +1,73 @@
 # 03. Dataset: M5Product
 
-## 3.1. Chuyển tiếp từ Product E-commerce Image
+## 3.1. Chuyển tiếp từ đặc điểm sản phẩm
 
-Ở mục 02, ta thấy dữ liệu e-commerce có ba đặc điểm nổi bật: đa phương thức, nhiễu và thiếu hụt, đồng thời có long-tail category. Nếu chỉ dùng dataset ảnh-text nhỏ hoặc dataset thời trang đơn miền, hệ thống khó mô phỏng môi trường catalog thực tế. Vì vậy, chúng tôi chọn **M5Product** từ bài *M5Product: Self-harmonized Contrastive Learning for E-commercial Multi-modal Pretraining*.
+Mục 02 nêu ba tính chất: dữ liệu có cấu trúc nhiều modality, không toàn vẹn, và cực kỳ đa dạng. Dataset ảnh-text nhỏ hoặc dataset thời trang đơn miền không mô phỏng được catalog đó. Chúng tôi chọn **M5Product** từ bài *M5Product: Self-harmonized Contrastive Learning for E-commercial Multi-modal Pretraining*.
 
 ## 3.2. Tổng quan M5Product
 
-M5Product là dataset e-commerce đa phương thức gồm 5 modality:
+M5Product là bộ dữ liệu quy mô lớn cho sản phẩm thương mại điện tử:
 
-- Image
-- Text/caption
-- Table/specification
-- Video
-- Audio
+- Hơn **6 triệu** mẫu đa phương thức; **6,313,067** samples theo paper.
+- **6,232** danh mục; hơn **5.000** thuộc tính với **24 triệu+** giá trị.
+- **5 modality**: hình ảnh, văn bản, dữ liệu bảng, video, âm thanh.
+- Thu thập từ hơn **1 triệu** người bán, đảm bảo đa dạng ngành hàng.
 
-Theo bài báo, dataset có **6,313,067 samples**, **6,232 categories**, hơn **5,000 attributes**, và lớn hơn đáng kể so với các dataset đa phương thức cùng số modality trước đó. Điểm quan trọng là M5Product không phải dataset paired hoàn hảo; nó chứa missing modality, noise và phân phối long-tail, giống điều kiện e-commerce thật.
+Dataset không paired hoàn hảo: thiếu modality, nhiễu, phân phối long-tail — giống điều kiện sàn thật.
 
 ## 3.3. Vai trò của từng modality
 
 | Modality | Thông tin chính | Vai trò trong retrieval |
 | --- | --- | --- |
-| Image | Appearance, color, shape, texture, pattern. | Cốt lõi cho visual similarity và query bằng ảnh. |
-| Text | Title, caption, selling point, category phrase. | Bổ sung semantic và intent mà ảnh khó biểu diễn. |
-| Table | Brand, material, color, applicable scene, product properties. | Cung cấp thuộc tính cấu trúc, hỗ trợ fine-grained matching. |
-| Video | Nhiều góc nhìn, scale, use case, product behavior. | Giảm view incompleteness và sensory gap. |
-| Audio | Voice/sound trong video hoặc mô tả liên quan. | Bổ sung tín hiệu khi query hoặc listing có audio. |
+| Image | Appearance, màu, hình dáng, texture. | Tín hiệu thị giác; thường có mặt trong query. |
+| Text | Title, caption, selling point, cụm category. | Semantic và intent mà ảnh khó biểu diễn. |
+| Table | Brand, chất liệu, kích thước, scene, thuộc tính. | Fine-grained matching theo thông số. |
+| Video | Nhiều góc nhìn, use case, hành vi sản phẩm (ví dụ độ đàn hồi). | Bổ sung appearance/usage khi có video. |
+| Audio | Lời giới thiệu hoặc âm thanh tách từ video (MFCC). | Tín hiệu bổ sung; không phải video nào cũng có tiếng hữu ích. |
 
-## 3.4. Dataset split và annotation
+## 3.4. Dataset split gốc của paper
 
-Bài báo M5Product mô tả training set gồm **4,423,160 samples** từ **3,593 classes**. Phần retrieval được chia thành gallery/query cho hai mức:
+Training set paper gồm **4,423,160** samples từ **3,593** classes. Retrieval chia gallery/query ở hai mức:
 
-- **Coarse-grained retrieval**: match theo category, ví dụ tất cả điện thoại được xem là cùng nhóm.
-- **Fine-grained retrieval**: chỉ xem là match khi cùng sản phẩm ở mức instance, ví dụ cùng model/màu/kiểu dáng.
+- **Coarse-grained**: match theo category.
+- **Fine-grained**: match cùng sản phẩm (model/màu/kiểu).
 
-Để giảm chi phí labeling, paper dùng ResNet50 và BERT-Base để tạo candidate pool, sau đó dùng crowd-sourcing để xác nhận các cặp match. Điều này phù hợp với mục tiêu của đề tài: đánh giá không chỉ retrieval theo category mà còn retrieval cùng sản phẩm hoặc rất gần sản phẩm.
+Paper dùng ResNet50 + BERT để tạo candidate pool, rồi crowd-sourcing xác nhận cặp match.
 
-## 3.5. Vì sao M5Product phù hợp với đề tài?
+## 3.5. Subset dùng trong đề tài
 
-- Có đủ 5 modality cho product entry trong catalog: image, text, video, audio và information table.
-- Có dữ liệu lớn để học embedding robust.
-- Có missing modality, giúp kiểm tra khả năng vận hành khi catalog không đầy đủ.
-- Có category đa dạng hơn các dataset thời trang hẹp miền.
-- Có 6.232 category nên giúp mở rộng kiến thức của model ngoài các nhóm quen thuộc như giày dép hoặc quần áo; tuy vậy vẫn cần đánh giá riêng category long-tail và category ngoài training.
-- Có task retrieval, classification và clustering để đánh giá embedding.
+Full M5Product quá lớn cho thời gian và GPU của nhóm. Chúng tôi chọn số mẫu nhỏ hơn nhưng vẫn giữ bao quát ngành hàng và tính **không đầy đủ** của từng mẫu:
 
-## 3.6. Cách sử dụng trong đề tài
+1. Đếm số sản phẩm theo hơn 6.000 category.
+2. Đưa danh sách số mẫu và tên category qua ChatGPT, gộp thành **50 super category** (ví dụ giày, đồ gia dụng, đồ phòng khách).
+3. Với mỗi super category chọn **200** mẫu theo tỉ lệ **70 / 20 / 10**:
+   - 70% đủ 5 modality;
+   - 20% thiếu 1 hoặc 2 modality;
+   - 10% chỉ có 1 modality.
+4. Tổng **50 × 200 = 10.000** mẫu.
 
-Chúng tôi dự kiến dùng M5Product theo ba pha:
+Subset này dùng cho train/finetune embedding, xây gallery HNSW và đánh giá retrieval. Tỉ lệ 70/20/10 bảo đảm model vẫn gặp missing modality, khớp Thách thức 2 ở Mục 05.
 
-1. **Pretraining/finetuning feature extractor**: học embedding chung bằng SCALE.
-2. **Build gallery embedding**: trích xuất embedding cho ảnh sản phẩm trong catalog.
-3. **Evaluate retrieval**: dùng query set để truy hồi top-K qua `IndexFlatIP` exact baseline, Faiss HNSW và IVF-PQ, sau đó đo mAP@K, Precision@K, Recall@K.
+## 3.6. Vì sao M5Product phù hợp?
+
+- Đủ 5 modality cho cả query và catalog.
+- Missing modality giúp kiểm tra zero imputation và SIMCL.
+- Super category đa dạng hơn dataset fashion hẹp miền.
+- Có task retrieval để đo mAP@K, Precision@K trên embedding SCALE.
+
+## 3.7. Cách sử dụng trong đề tài
+
+1. **Pretrain/finetune SCALE** trên subset 10.000 mẫu.
+2. **Build gallery embedding** rồi lập chỉ mục Faiss HNSW.
+3. **Evaluate**: query đa phương thức → unified embedding → HNSW → (tùy chọn) tái xếp hạng thuộc tính → top-K; đo Precision@K, AP, mAP, kể cả ablation Image-Text-Video hoặc Image-Table-Video.
 
 ```mermaid
 flowchart LR
-    D["M5Product<br/>Image Text Table Video Audio"] --> S["Train/Finetune SCALE"]
-    S --> G["Gallery Embeddings"]
-    S --> Q["Query Embeddings"]
-    G --> A["Flat baseline + Faiss HNSW/IVF-PQ"]
-    Q --> A
-    A --> M["Retrieval Metrics"]
+    D["M5Product"] --> SUB["Subset 10k<br/>50 super-cat × 200<br/>70/20/10"]
+    SUB --> S["Train/Finetune SCALE"]
+    S --> G["Gallery embeddings"]
+    S --> Q["Query embeddings"]
+    G --> H["Faiss HNSW"]
+    Q --> H
+    H --> M["Top-K + metrics"]
 ```

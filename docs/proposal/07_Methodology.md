@@ -2,599 +2,244 @@
 
 ## 7.1. Mục tiêu kỹ thuật
 
-Phương pháp đề xuất gồm hai khối lớn:
+Hai khối, đúng SCALE rồi mới tới serving:
 
-1. **SCALE feature extractor**: biến dữ liệu sản phẩm đa phương thức thành vector embedding chung.
-2. **Faiss-based retrieval index**: lưu và tìm kiếm các embedding đó để trả về top-K product entry gần query nhất. `IndexFlatIP` là exact baseline trên vector đã chuẩn hóa, Faiss HNSW là index chính, còn IVF-PQ/OPQ-PQ là phương án nén khi cần.
+1. **SCALE** (Dong et al.): năm encoder → Joint Co-Transformer → masked tasks + SIMCL → embedding.
+2. **Faiss HNSW**: lập chỉ mục catalog, lọc thô ứng viên. Tái xếp hạng thuộc tính ở Mục 08.
 
-Nói ngắn gọn: SCALE trả lời câu hỏi "query và sản phẩm có giống nhau không?", còn retrieval index trả lời câu hỏi "làm sao tìm nhanh sản phẩm giống nhất trong hàng triệu sản phẩm?".
+![Pipeline offline catalog và online query](images/scale-pipeline-offline-online.png)
 
-```mermaid
-flowchart LR
-    subgraph Offline["Offline Pipeline"]
-        D["M5Product / Catalog"] --> PP["Preprocess by Modality"]
-        PP --> FE["SCALE Feature Extractor"]
-        FE --> PE["Product Embeddings"]
-        PE --> IDX["Build Faiss HNSW / IVF-PQ Index"]
-    end
-    subgraph Online["Online Query Pipeline"]
-        Q["Query<br/>Image + optional text/table"] --> QP["Preprocess"]
-        QP --> QF["SCALE Query Encoder"]
-        QF --> QE["Query Embedding"]
-        QE --> IDX
-        IDX --> TOP["Top-K Product Images"]
-    end
-```
+**Hình 7.1.** Offline nhúng toàn bộ listing vào HNSW. Online chạy cùng SCALE trên query (nhánh thiếu = zero imputation).
 
-## 7.2. Một khái niệm nền: token, feature và embedding
+## 7.2. Ý tưởng SCALE
 
-Trước khi đi vào từng modality, cần phân biệt ba khái niệm:
+**SCALE** (*Self-harmonized ContrAstive Learning*): học embedding chung từ nhiều modality và **tự cân bằng** đóng góp từng nhánh.
 
-- **Raw data**: dữ liệu gốc, ví dụ ảnh `.jpg`, câu mô tả sản phẩm, bảng key-value, video `.mp4`, audio waveform.
-- **Feature/token**: biểu diễn trung gian mà model đọc được. Transformer không đọc trực tiếp ảnh/video/audio thô; ta phải đổi chúng thành một chuỗi vector. Mỗi vector trong chuỗi được gọi là một token.
-- **Embedding**: vector cuối cùng đại diện cho cả query hoặc cả sản phẩm. Vector này được dùng để tính similarity và đưa vào Flat baseline hoặc Faiss HNSW/IVF-PQ index.
+- **Chi tiết token:** che 15% input, dùng hidden JCT khôi phục (MLM, MRP, MEM, MFP, MAM).
+- **Toàn cục:** contrastive giữa modality cùng listing (positive) và listing khác trong batch (negative), nhân trọng số từ ma trận alignment `S`.
 
-Ví dụ với text `"white leather sneakers"`, tokenizer có thể tách thành các token như `[CLS]`, `white`, `leather`, `sneakers`, `[SEP]`; mỗi token được biến thành một vector 768 chiều. Với image, "token" không phải là word mà là region feature: vùng giày, vùng logo, vùng đế giày, vùng texture, v.v.
+Paper: với ≥3 modality không được gán mọi cặp `L_CL` bằng nhau vì complementary khác nhau.
 
-## 7.3. Tổng quan kiến trúc SCALE
+## 7.3. Token, feature, embedding
 
-SCALE trong paper M5Product là một kiến trúc multi-modal pretraining gồm:
+- **Raw:** ảnh, caption, bảng key-value, video 24 FPS, audio (mp3 từ video).
+- **Token:** region 2048-d, WordPiece, entity table, frame/S3D, MFCC.
+- **Embedding:** pooled vector sau JCT (thường `[CLS]` từng nhánh), lúc retrieval cộng các nhánh dùng được rồi L2-normalize.
 
-1. **Modality-specific encoders**: mỗi loại dữ liệu có encoder riêng để biến dữ liệu đó thành token vectors.
-2. **Concatenate tokens**: nối token của các modality thành một sequence dài.
-3. **Joint Co-Transformer (JCT)**: transformer chung học quan hệ giữa token của nhiều modality.
-4. **SIMCL + masked tasks**: các loss để model học alignment giữa modality và học lại phần bị che.
+## 7.4. Tổng quan kiến trúc
 
-```mermaid
-flowchart TD
-    I["Image Regions<br/>Faster R-CNN + ResNet101"] --> IE["Image Transformer"]
-    T["Text Tokens<br/>BERT tokenizer/init"] --> TE["Text Transformer"]
-    TB["Table Entities<br/>key-value attributes"] --> TBE["Table Transformer"]
-    V["Video Frames<br/>sampled frame tokens"] --> VE["Video Transformer"]
-    A["Audio MFCC<br/>spectrogram-like tokens"] --> AE["Audio Transformer"]
-    IE --> CAT["Concatenate Tokens<br/>+ modality embeddings + masks"]
-    TE --> CAT
-    TBE --> CAT
-    VE --> CAT
-    AE --> CAT
-    CAT --> JCT["Joint Co-Transformer"]
-    JCT --> Z["Unified Product Embedding"]
-```
+Paper mô tả **single-stream transformer**. Đáy: năm embedding layer + transformer unimodal. Token được concat, đưa **Joint Co-Transformer (JCT)**. Mỗi unimodal encoder và fusion encoder **6 layer** (tổng 12); hidden **768**. Text init BERT; các nhánh còn lại random. Caption max **36**, table max **64**. Missing modality: **zero imputation**.
 
-Theo paper M5Product/SCALE:
+![Năm nhánh SCALE cộng JCT, masked tasks và SIMCL](images/scale-architecture-five-stream.png)
 
-- Text transformer được khởi tạo từ BERT.
-- Các modality transformer và fusion encoder có 6 transformer layers; tổng single-modality + multi-modal fusion là 12 layers.
-- Hidden size là 768.
-- Caption length tối đa là 36, table length tối đa là 64.
-- Image dùng Faster R-CNN với ResNet101 pretrained trên Visual Genome để lấy 10-36 region features.
-- Audio dùng MFCC.
-- Missing modality được xử lý bằng zero imputation.
+**Hình 7.2.** Kiến trúc SCALE: năm stream → concat + modality embedding/mask → JCT → pretext + SIMCL.
 
-## 7.4. Image branch: Image Regions -> Image Transformer
+## 7.5. Xử lý từng modality
 
-### 7.4.1. Image branch là gì?
+![Năm encoder unimodal của SCALE](images/scale-modality-encoders.png)
 
-Image branch là nhánh biến ảnh sản phẩm thành một sequence các vector mô tả những vùng quan trọng trong ảnh. Thay vì đưa toàn bộ ảnh vào transformer như một ma trận pixel, SCALE dùng object/region features.
+**Hình 7.3.** Pipeline raw → token cho Image, Text, Table, Video, Audio.
 
-Ví dụ ảnh một đôi giày:
+### 7.5.1. Image: region giàu thông tin (bottom-up attention)
 
-- Region 1: toàn bộ đôi giày.
-- Region 2: logo.
-- Region 3: phần đế.
-- Region 4: dây giày.
-- Region 5: texture da/vải.
+SCALE **không** đưa cả ảnh pixel vào ViT. Object detector đề xuất vùng, transformer học quan hệ giữa vùng.
 
-Mỗi region được biểu diễn bằng một vector. Sequence các vector này là input cho Image Transformer.
+Paper dùng Faster R-CNN, backbone **ResNet-101**, pretrained **Visual Genome**, lấy **10–36** box có objectness cao — cùng setting ViLBERT / `py-bottom-up-attention`. Mỗi region là vector (thường 2048-d khi `predict_feature`); cộng location (x, y, w, h, area). Image Transformer (6 layer) contextualize thành image tokens `R1 … Rk`.
 
-### 7.4.2. Vì sao dùng region feature thay vì toàn ảnh?
+Lý do e-commerce: background, model, chữ, quà tặng thay đổi mạnh (Mục 5.3). Region giúp token bám logo, đế giày, texture thay vì banner giá.
 
-Trong e-commerce, background, model, ánh sáng và layout ảnh có thể thay đổi mạnh. Nếu dùng toàn ảnh, model dễ học nhầm background hoặc style chụp. Region feature giúp model tập trung vào object chính và các bộ phận sản phẩm.
+Code: `image_feat` shape `B × box × 2048`, `image_attention_mask` đánh dấu box padding.
 
-Paper SCALE dùng hướng **bottom-up attention**: object detector đề xuất các vùng ảnh quan trọng trước, sau đó transformer học quan hệ giữa các vùng đó.
+### 7.5.2. Text: BERT tokenizer + Text Transformer
 
-### 7.4.3. Input và output
+Input: title/caption merchant (paper: text không luôn khớp ảnh). Tokenizer WordPiece, max length **36**, `[CLS]` / `[SEP]`. Text transformer **khởi tạo BERT** (paper: `bert-base`; script gốc `bert-base-chinese` vì caption tiếng Trung).
 
-| Thành phần | Mô tả |
-| --- | --- |
-| Input raw | Ảnh sản phẩm hoặc ảnh query. |
-| Detector output | `N` bounding boxes, thường chọn 10-36 vùng có objectness score cao. |
-| Region feature | Vector cho mỗi vùng, ví dụ `N x d`. |
-| Image transformer output | Sequence token ảnh đã được contextualize, ví dụ `N x 768`. |
+`[CLS]` sau encoder là `pooled_output_t`. MLM che 15% token, đoán lại từ ngữ cảnh **và các modality khác** qua JCT.
 
-### 7.4.4. Tool đề xuất
+### 7.5.3. Table: entity key-value, encoder riêng
 
-| Tool | Nguồn | Vai trò |
-| --- | --- | --- |
-| `airsplay/py-bottom-up-attention` | Được paper SCALE nhắc tới trong footnote. | Gần nhất với cách SCALE lấy bottom-up region features. |
-| `torchvision.models.detection` | Tool ngoài, dựa trên PyTorch/TorchVision. | Dùng Faster R-CNN/ResNet-FPN để prototype object detection nếu không dùng đúng bottom-up attention code. |
-| `timm` hoặc `torchvision.models` | Tool ngoài. | Dùng ResNet/ViT/Swin làm visual backbone thay thế nếu cần đơn giản hóa. |
+Table là spec merchant: 5,679 loại thuộc tính, ~24.4M value. SCALE **không** concat table vào caption. Ablation paper (Table 8): T/Tab tách **85.50** Acc vs T+Tab **84.61** — một transformer dễ hy sinh table vì text “mạnh miệng” hơn.
 
-Nếu dùng đúng tinh thần paper, lựa chọn tốt nhất là `py-bottom-up-attention`. Nếu môi trường khó cài, có thể dùng `torchvision` Faster R-CNN để lấy bounding boxes, sau đó lấy feature từ backbone hoặc ROI pooled features. Đây là thay thế thực dụng, cần ghi rõ trong báo cáo là implementation approximation.
-
-## 7.5. Text branch: Text Tokens -> Text Transformer
-
-### 7.5.1. Text branch là gì?
-
-Text branch biến title/caption/description thành token vectors. Ví dụ:
+Serialize entity, ví dụ:
 
 ```text
-Input text: "Bubble Matt Blind Box Storage Ladder"
-Tokens: [CLS], bubble, matt, blind, box, storage, ladder, [SEP]
+[ENT] key = material [VAL] wood [SEP]
 ```
 
-Mỗi token được ánh xạ thành vector thông qua embedding layer của BERT, sau đó đi qua Text Transformer để học ngữ cảnh.
+Max **64** token. **MEM** che **cả entity** (brand, property), không che từng subword như MLM — Acc 85.50 vs 84.05 (Table 7).
 
-### 7.5.2. BERT init nghĩa là gì?
+Code: `pv_input_ids` (pv = property-value), `em_label_ids` cho MEM; loss `masked_em_loss`.
 
-SCALE không train text transformer từ con số 0. Paper dùng BERT để khởi tạo text transformer. BERT là encoder-only transformer đã học ngôn ngữ bằng masked language modeling. Vì vậy, ngay từ đầu model đã biết một phần quan hệ giữa các từ, ví dụ `leather`, `shoe`, `sneaker`, `white`, `size`.
+### 7.5.4. Video: sample 1 fps
 
-### 7.5.3. Input và output
+Video listing 24 FPS. Paper: **một frame mỗi giây** để bớt frame kề trùng, rồi “ordinal frames” vào video encoder. Mask Frame Prediction (MFP) che frame/token, reconstruct feature.
 
-| Thành phần | Mô tả |
-| --- | --- |
-| Input raw | Product title, caption, description. |
-| Tokenizer output | `input_ids`, `attention_mask`, optional `token_type_ids`. |
-| Text transformer output | Sequence token text, ví dụ `L_text x 768`. |
-| Vai trò | Bổ sung category, function, material, selling point mà ảnh không thể hiện rõ. |
+![Sample 1 frame/giây từ video sản phẩm](images/scale-video-1fps.png)
 
-### 7.5.4. Tool đề xuất
+**Hình 7.4.** Đúng preprocessing M5Product: 24 FPS → 1 fps → video tokens.
 
-| Tool | Nguồn | Vai trò |
-| --- | --- | --- |
-| Hugging Face `transformers` | Tool ngoài, official docs. | Dùng `BertTokenizer`, `BertModel`, hoặc `AutoTokenizer/AutoModel`. |
-| Google BERT checkpoint | Paper gốc BERT. | Khởi tạo text encoder. |
+Code train: `video_len=12` (12 token). Tool `VideoFeatureExtractor` trong repo SCALE fork S3D pretrained HowTo100M, xuất `.npy` rồi pickle — implementation cụ thể hơn câu “video transformer” trên paper. Padding/mask khi listing không có video.
 
-Ví dụ lựa chọn implementation:
+### 7.5.5. Audio: MFCC từ video
+
+Audio **tách từ video** (moviepy → mp3). Không phải clip nào cũng có tiếng hữu ích. SCALE: Mel-Frequency Cepstral Coefficients, **frame size 1024, hop 256**, ma trận `time_steps × n_mfcc`, linear projection lên 768, Audio Transformer, MAM.
+
+Code: `audio_len=12`, `audio_feat` / `audio_label` / `audio_target` song song image/video. Thiếu audio = zero + mask.
+
+## 7.6. JCT: Joint Co-Transformer
+
+Paper: **single-stream** — không dual-stream như ViLBERT. Sau encoder unimodal, token năm nhánh **concatenate**, cộng:
+
+- position embedding;
+- **modality / type embedding** (biết token thuộc I/T/Tab/V/A);
+- **attention mask** (padding và nhánh zero-impute không được attend).
+
+JCT (6 layer, hidden 768) self-attention trên chuỗi hỗn hợp. Pedagogical (slide): intra-modality = token cùng màu chú ý nhau; cross-modality = vùng “đế giày” chú ý token “sneaker”, `Material: leather` chú ý texture.
+
+![Self-attention và cross-attention trong JCT](images/scale-jct.png)
+
+**Hình 7.5.** Một transformer, năm loại token; output `H = (h_I, h_t, h_tab, h_v, h_a)`.
+
+Pooled vector lấy `sequence_output[:, 0]` từng nhánh (token đầu / `[CLS]`). Code `SCALE.py`:
 
 ```text
-tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
-text_encoder = AutoModel.from_pretrained("bert-base-uncased")
+pooled_output_t  = sequence_output_t[:, 0]
+pooled_output_pv = sequence_output_pv[:, 0]   # table
+pooled_output_v  = sequence_output_v[:, 0]    # image
+pooled_output_video, pooled_output_audio tương tự
 ```
 
-## 7.6. Table branch: Table Entities -> Table Transformer
+## 7.7. Masked self-supervised learning
 
-### 7.6.1. Table entities là gì?
-
-Table trong e-commerce là thông tin có cấu trúc dạng key-value. Ví dụ:
-
-| Key | Value |
-| --- | --- |
-| Item | Blind Box Ladder Storage Box |
-| Brand | Tang Craftsman |
-| Material | Wood |
-| Color | White, Light Gray, Dark Gray |
-| Applicable Scene | Study |
-
-Một **table entity** là một đơn vị thuộc tính có nghĩa, thường là cặp `key: value`. Ví dụ `Material: Wood` là một entity, `Color: White` là một entity. Nó khác text bình thường vì key cho biết vai trò của value.
-
-### 7.6.2. Vì sao không chỉ nối table thành text?
-
-Nếu nối mọi thứ thành câu text, model có thể mất cấu trúc key-value. Ví dụ `white` trong `Color: White` khác với `Brand: White Label`. Table Transformer giúp model học rằng `Color`, `Brand`, `Material`, `Size`, `Applicable Scene` là các loại thuộc tính khác nhau.
-
-### 7.6.3. Cách biểu diễn table entity
-
-Paper SCALE dùng table transformer riêng và **Mask Entity Modeling (MEM)**, nhưng không công bố chi tiết serialization table trong phần chính. Chi tiết encoding table sẽ được quyết định khi hiện thực và ghi riêng trong báo cáo thực nghiệm; nó không được xem là một thành phần đã xác định của SCALE gốc.
-
-### 7.6.4. Input và output
-
-| Thành phần | Mô tả |
-| --- | --- |
-| Input raw | JSON/CSV/key-value product specification. |
-| Entity sequence | Danh sách entity đã serialize. |
-| Table transformer output | Sequence token/entity table, ví dụ `L_table x 768`. |
-| Vai trò | Bổ sung fine-grained attributes như brand, material, color, size. |
-
-### 7.6.5. Tool đề xuất
-
-| Tool | Nguồn | Vai trò |
-| --- | --- | --- |
-| `pandas` | Tool ngoài. | Đọc CSV/JSON, normalize bảng thuộc tính. |
-| Python `json` | Standard library. | Parse product attribute JSON. |
-| Hugging Face tokenizer | Tool ngoài. | Tokenize chuỗi entity serialization. |
-
-### 7.6.6. Mask Entity Modeling
-
-Với MLM, ta mask token lẻ. Với MEM, ta mask cả entity:
+Che **15%**. Ground truth là feature/token vùng bị che. Loss nhánh `i`:
 
 ```text
-Before: [ENT] key = material [VAL] wood [SEP]
-After:  [MASK_ENTITY]
-Target: material = wood
+L_Mi(θ) = −E log Pθ(t_msk | t_¬msk, M_¬i)
 ```
 
-Việc mask nguyên entity buộc model dùng image/text/video/audio còn lại để suy luận thuộc tính bị thiếu. Ví dụ nhìn ảnh ghế gỗ và title "wooden chair", model có thể dự đoán `Material: Wood`.
+tức dùng token còn lại **và modality khác** để đoán — đây là chỗ JCT buộc interaction.
 
-## 7.7. Video branch: Video Frames -> Video Transformer
+![Năm masked task: MLM, MRP, MEM, MFP, MAM](images/scale-masked-tasks.png)
 
-### 7.7.1. Video branch là gì?
+**Hình 7.6.** Pretext SCALE. MEM khác MLM: mask nguyên entity.
 
-Video branch biến video sản phẩm thành chuỗi frame features. Một video có nhiều frame, nhưng không thể đưa toàn bộ frame vào model vì quá nặng. Ta sample một số frame đại diện, ví dụ 8 hoặc 16 frame theo thời gian.
-
-Ví dụ video quay túi xách:
-
-- Frame 1: mặt trước.
-- Frame 2: góc nghiêng.
-- Frame 3: mặt sau.
-- Frame 4: cận cảnh khóa kéo.
-- Frame 5: bên trong túi.
-
-Những frame này giúp model hiểu sản phẩm ở nhiều góc nhìn.
-
-### 7.7.2. Input và output
-
-| Thành phần | Mô tả |
-| --- | --- |
-| Input raw | Video sản phẩm. |
-| Frame sampler | Chọn `T` frame theo thời gian. |
-| Frame feature | Vector cho từng frame hoặc region trong frame. |
-| Video transformer output | Sequence video tokens, ví dụ `T x 768`. |
-
-### 7.7.3. Tool đề xuất
-
-| Tool | Nguồn | Vai trò |
+| Paper | Code (`pretrain_task.py`) | Mục tiêu |
 | --- | --- | --- |
-| `ffmpeg` | Tool ngoài, industry standard. | Decode video, extract frames/audio. |
-| `PyAV` | Tool ngoài, Python binding cho FFmpeg libraries. | Đọc video frame trực tiếp trong Python dataloader. |
-| `decord` | Tool ngoài. | Efficient video loading cho deep learning. |
-| `torchvision.io` | Tool ngoài. | Đọc video cơ bản trong PyTorch ecosystem. |
+| MLM | `masked_loss_t`, flag `--MLM` | Token caption |
+| MRP / MRM | `masked_loss_v`, `--MRM` | Region image (`predict_feature`: regress 2048-d) |
+| MEM | `masked_loss_pv`, `--MEM` | Entity table |
+| MFP / MFM | `masked_loss_video`, `--MFM` | Frame/video token |
+| MAM | `masked_loss_audio`, `--MAM` | Audio token |
 
-## 7.8. Audio branch: Audio MFCC -> Audio Transformer
+Tắt flag thì nhân loss với 0. `predict_feature=True` đặt `v_target_size=2048` (feature regression); false thì 1601 (object class Visual Genome).
 
-### 7.8.1. Audio branch là gì?
+## 7.8. SIMCL và alignment matrix S
 
-Audio branch biến tín hiệu âm thanh thành chuỗi feature theo thời gian. Trong SCALE, audio được biểu diễn bằng **MFCC - Mel-Frequency Cepstral Coefficients**.
+Với hai modality, InfoNCE: cùng sample = positive; sample khác trong batch = negative; `sim` = cosine, temperature `τ` (code/paper ~0.1).
 
-MFCC là cách nén phổ âm thanh theo thang Mel, gần với cách tai người cảm nhận tần số. Nó thường gồm các bước:
+Với năm modality, số cặp tăng; paper không fit trực tiếp Eq. 2. **SIMCL** đưa ma trận `S`:
 
-1. Chia audio thành frame ngắn.
-2. Tính phổ tần số cho từng frame.
-3. Áp dụng Mel filter bank.
-4. Lấy log năng lượng.
-5. Dùng DCT để tạo cepstral coefficients.
-
-### 7.8.2. Audio giúp gì cho product search?
-
-Audio không phải modality mạnh nhất cho mọi sản phẩm, nhưng có thể hữu ích khi:
-
-- Video sản phẩm có lời giới thiệu.
-- Sản phẩm có âm thanh đặc trưng, ví dụ nhạc cụ, thiết bị điện, đồ chơi.
-- Audio transcript có thể bổ sung text signal.
-
-### 7.8.3. Input và output
-
-| Thành phần | Mô tả |
-| --- | --- |
-| Input raw | Audio waveform hoặc audio track từ video. |
-| MFCC output | Ma trận `time_steps x n_mfcc`. |
-| Projection | Linear layer đưa MFCC về hidden size 768. |
-| Audio transformer output | Sequence audio tokens, ví dụ `L_audio x 768`. |
-
-### 7.8.4. Tool đề xuất
-
-| Tool | Nguồn | Vai trò |
-| --- | --- | --- |
-| `librosa.feature.mfcc` | Tool ngoài, official docs. | Tính MFCC từ waveform. |
-| `torchaudio.transforms.MFCC` | Tool ngoài, PyTorch ecosystem. | Tính MFCC trực tiếp bằng tensor pipeline. |
-| `ffmpeg` hoặc `PyAV` | Tool ngoài. | Tách audio track từ video. |
-
-## 7.9. Concatenate Tokens: nối các modality như thế nào?
-
-Sau khi từng encoder tạo token sequence riêng, ta nối chúng thành một sequence chung:
+- Paper: `S` init 0, học như parameter; `S ← S · softmax(S)`. Tam giác `S_△` nhân `L_CL`; chéo `S_\` nhân `L_Mi`.
 
 ```text
-[IMG_CLS], img_1, img_2, ..., img_N,
-[TXT_CLS], txt_1, txt_2, ..., txt_L,
-[TAB_CLS], tab_1, tab_2, ..., tab_M,
-[VID_CLS], vid_1, vid_2, ..., vid_T,
-[AUD_CLS], aud_1, aud_2, ..., aud_A
+L_total = Σ S△ S_ij L_CL_ij + Σ S\ S_i L_Mi
 ```
 
-Để JCT biết token nào thuộc modality nào, cần cộng thêm:
+- Code `graph_construct_per_sample`: với mỗi sample, xếp 5 pooled vector, cosine `5×5`, rồi `revised = sim * softmax(sim)` — **cùng công thức** `S · softmax(S)`, tính **theo sample** từ embedding hiện tại. `modality_weight` lấy đường chéo; các `prediction_scores_*` (masked heads) được **nhân** `modality_weight` trước khi tính MLM/MRM/… Contrastive là `CLR_loss` (`--CLR`).
 
-- **Position embedding**: token đứng ở vị trí nào trong sequence.
-- **Modality/type embedding**: token thuộc image, text, table, video hay audio.
-- **Attention mask**: token nào là thật, token nào là padding/missing.
+![Positive/negative cặp modality và ma trận S](images/scale-simcl.png)
 
-Đây là phần implementation cần làm rõ khi code. Nếu thiếu modality, ví dụ query chỉ có image, ta dùng mask để JCT không chú ý vào padding token của modality khác.
+**Hình 7.7.** SIMCL: positive cùng listing, negative listing khác; `S` hạ trọng số nhánh thiếu hoặc ít complementary.
 
-## 7.10. Joint Co-Transformer (JCT)
+## 7.9. Cách SCALE giải hai thách thức
 
-### 7.10.1. JCT là gì?
+**Modality Interaction (5.1).** Năm loại token vào một JCT; self-attention trong nhánh, cross-attention giữa nhánh. SIMCL không ép mọi `L_CL` bằng nhau.
 
-JCT là transformer chung nhận sequence token đã nối từ nhiều modality. Nó dùng self-attention để mỗi token có thể "nhìn" các token khác, kể cả token từ modality khác.
+**Modality Noise (5.2).** Zero imputation + mask: mẫu thiếu vẫn vào batch (paper Table 10: train cả incomplete tốt hơn chỉ full-modality). `S` / `modality_weight` giảm ảnh hưởng nhánh zero.
 
-Ví dụ:
+## 7.10. Xuất embedding
 
-- Token ảnh vùng "đế giày" có thể chú ý tới token text "sneaker".
-- Token table `Material: leather` có thể chú ý tới vùng texture trong ảnh.
-- Token video frame cận cảnh logo có thể chú ý tới text brand.
-- Token audio từ lời giới thiệu có thể chú ý tới table attribute.
-
-### 7.10.2. Vì sao JCT quan trọng?
-
-Nếu chỉ encode từng modality riêng rồi average, model khó học quan hệ chi tiết giữa chúng. JCT cho phép cross-modal reasoning:
-
-- Text giải thích ảnh.
-- Table xác nhận thuộc tính trong ảnh.
-- Video bổ sung góc nhìn ảnh không có.
-- Audio/voice bổ sung intent hoặc selling point.
-
-JCT là nơi semantic gap và việc liên kết thông tin đa phương thức được cải thiện mạnh nhất.
-
-### 7.10.3. Self-attention trong JCT hoạt động thế nào?
-
-Với mỗi token, transformer tạo ba vector `Q`, `K`, `V`:
-
-- `Q` - query: token này đang tìm thông tin gì?
-- `K` - key: token khác chứa loại thông tin nào?
-- `V` - value: nội dung token khác sẽ truyền sang là gì?
-
-Attention score giữa token `i` và token `j` được tính từ `Q_i` và `K_j`. Nếu score cao, token `i` lấy nhiều thông tin từ `V_j`.
-
-Trong JCT, token image có thể attend tới token text/table/video/audio. Vì vậy, output của JCT không còn là feature đơn modality nữa mà là feature đã được "làm giàu" bởi các modality khác.
-
-```mermaid
-flowchart TD
-    X["Concatenated Multi-modal Tokens"] --> SA["Multi-head Self-Attention"]
-    SA --> FFN["Feed Forward Network"]
-    FFN --> LN["Residual + LayerNorm"]
-    LN --> O["Contextualized Multi-modal Tokens"]
-    O --> POOL["Pooling / CLS Selection"]
-    POOL --> EMB["Unified Embedding"]
-```
-
-### 7.10.4. Output của JCT lấy embedding như thế nào?
-
-Paper sử dụng fused modality features từ JCT cho downstream task nhưng không quy định một pooling rule duy nhất trong phần chính. Pooling rule được chọn cho pipeline retrieval cần được ghi rõ và kiểm chứng bằng ablation.
-
-## 7.11. Self-supervised masked tasks
-
-SCALE dùng các pretext tasks để model học đặc trưng hữu ích ngay cả khi không có label thủ công.
-
-| Task | Modality | Cách hoạt động | Vì sao hữu ích |
-| --- | --- | --- | --- |
-| MRP - Masked Region Prediction | Image | Che một số region image và dự đoán lại feature/label vùng đó. | Học object part và visual context. |
-| MLM - Masked Language Modeling | Text | Che token text và dự đoán token bị che. | Học ngữ nghĩa title/caption. |
-| MEM - Mask Entity Modeling | Table | Che nguyên entity key-value. | Học product attributes có cấu trúc. |
-| MFP - Mask Frame Prediction | Video | Che frame/token video và dự đoán lại. | Học quan hệ theo thời gian/góc nhìn. |
-| MAM - Mask Audio Modeling | Audio | Che audio feature và dự đoán lại. | Học pattern âm thanh/speech context. |
-
-Paper mask 15% input. Với table, mask nguyên entity giúp model học tốt hơn so với mask từng word rời rạc.
-
-## 7.12. Self-harmonized Inter-Modality Contrastive Learning (SIMCL)
-
-Nếu chỉ có hai modality image-text, ta có thể dùng contrastive learning: image và text của cùng sản phẩm là positive pair, image và text của sản phẩm khác là negative pair. Nhưng với 5 modality, có nhiều cặp: image-text, image-table, image-video, text-table, video-audio, v.v. Không phải cặp nào cũng quan trọng như nhau.
-
-SIMCL học một **modality alignment score matrix** để tự cân bằng:
-
-- Cặp modality nào align tốt và nhiều thông tin hơn thì trọng số cao hơn.
-- Cặp modality nhiễu hoặc thiếu thông tin thì trọng số thấp hơn.
-- Masked task của từng modality cũng được cân bằng, tránh một modality lấn át toàn bộ training.
-
-Trong paper, alignment score matrix được học như tham số tự do; phần tam giác trên được dùng để weighting các inter-modality contrastive loss, còn phần đường chéo weighting intra-modality masked loss. Vì vậy SIMCL là cơ chế weighting loss, không phải bộ chọn modality động ở inference.
-
-```mermaid
-flowchart TD
-    B["Mini-batch with M Modalities"] --> P["Positive pairs<br/>same product"]
-    B --> N["Negative pairs<br/>different products"]
-    P --> CL["Inter-Modality Contrastive Loss"]
-    N --> CL
-    MASK["Masked Tasks<br/>MRP MLM MEM MFP MAM"] --> ML["Intra-Modality Masked Loss"]
-    S["Learned Alignment Score Matrix"] --> W1["Weight pair losses"]
-    S --> W2["Weight modality losses"]
-    CL --> W1
-    ML --> W2
-    W1 --> L["Total SCALE Loss"]
-    W2 --> L
-```
-
-Tổng loss khái niệm:
+Paper: fused feature từ JCT cho retrieval/classification/clustering; không khóa một pooling rule. Code `extract_features.py` (`return_features=True`) lưu **từng** pooled nhánh và **tổng**:
 
 ```text
-L_total = weighted_inter_modality_contrastive_loss
-        + weighted_intra_modality_masked_loss
+tpiva = t + p + i + v + a
 ```
 
-Đây là lý do SCALE phù hợp hơn cách fusion đơn giản như concatenate rồi train classifier: nó không chỉ nối dữ liệu, mà còn học mức độ tin cậy/đóng góp giữa các modality.
+Ablation I+T+V tương ứng file `tiv_feature_np.npy`, v.v. `id.npy` giữ product id.
 
-## 7.13. Embedding extraction
+![Offline catalog embedding và online query embedding](images/scale-embedding-export.png)
 
-Sau khi train/finetune, ta dùng SCALE để tạo embedding:
+**Hình 7.8.** Cùng encoder; nhánh thiếu = 0 nên tổng `tpiva` tự rơi về các nhánh có dữ liệu.
 
-### Catalog embedding offline
+Offline: preprocess → SCALE → L2-normalize → `{product_id, embedding, metadata}`. Online query: tối thiểu Image hoặc Video, cùng đường, search HNSW (serving) hoặc dot product (so với paper).
 
-1. Load product record.
-2. Đọc image/text/table/video/audio nếu có.
-3. Preprocess từng modality.
-4. Chạy qua modality encoders.
-5. Nối token và chạy JCT.
-6. Pool output thành vector embedding.
-7. L2-normalize.
-8. Lưu `{product_id, image_id, embedding, metadata}`.
+## 7.11. Indexing với Faiss HNSW
 
-### Query embedding online
+Paper SCALE **không** dùng HNSW; retrieval là `query · gallery^T` (`retrieval_unit_id_list_v2.py`). HNSW là lớp đề tài:
 
-1. Nhận query.
-2. Xác định query có modality nào.
-3. Preprocess modality đó.
-4. Các modality thiếu được mask/zero.
-5. Chạy qua SCALE.
-6. L2-normalize embedding.
-7. Search Flat baseline hoặc Faiss HNSW/IVF-PQ index.
+- Add vector, không train IVF.
+- Đồ thị đa tầng: trên thưa, tầng 0 đủ điểm.
+- Tune `M`, `efConstruction`, `efSearch`.
+- Xóa listing: đánh dấu metadata, rebuild theo lô.
 
-L2-normalization giúp cosine similarity hoặc inner product ổn định hơn. Shopsy cũng dùng L2-normalization trước khi đưa embedding vào ANN.
+Mục 08 lấy **N > K** ứng viên rồi tái xếp hạng.
 
-## 7.14. Retrieval index: Flat baseline, Faiss HNSW và IVF-PQ
+## 7.12. Training (paper + `pretrain_task.py`)
 
-Tầng retrieval nhận embedding của ảnh query và tìm top-K embedding gần nhất trong gallery product entry. Embedding gallery được tạo offline, lưu cùng `product_id`, ảnh đại diện và metadata; khi truy vấn, hệ thống chỉ tính embedding query rồi gọi index. Thiết kế này tách chi phí feature extraction khỏi latency của retrieval.
+Paper: batch **64**, **5 epoch**, Adam, warmup lr **`1e-4`**, 4 GPU 3090/2080 Ti, Apex mixed precision. Script eval gốc load **`pytorch_model_9.bin`** → đề tài train **10 epoch** (`epochId` 0–9), so Table 3–5 bằng đúng protocol Mục 7.13.
 
-### 7.14.1. Chuẩn hóa vector và exact baseline
+Vòng lặp `pretrain_task.py`:
 
-Trước khi index, query embedding và gallery embedding đều được L2-normalize. Retrieval chính dùng inner product, vì với vector đã chuẩn hóa thứ hạng theo inner product tương đương cosine similarity. `IndexFlatIP` duyệt toàn bộ gallery nên là exact baseline: top-K của nó được đối chiếu với nhãn đánh giá để đo chất lượng representation, đồng thời làm mốc tính recall loss của index ANN. `IndexFlatL2` chỉ dùng để kiểm tra tính nhất quán của metric khi cần, không phải một index triển khai riêng.
+1. `Pretrain_DataSet_Train`: lmdb ảnh, caption json, video/audio dir, flags MLM/MRM/MEM/MFM/MAM/CLR.
+2. `BertForMultiModalPreTraining`: BERT init nếu `--from_pretrained`.
+3. Forward → `masked_loss_t, masked_loss_pv, masked_loss_v, masked_loss_video, masked_loss_audio, next_sentence_loss` (CLR).
+4. `loss = Σ masked_* + CLR` (nhánh tắt = ×0; image × `img_weight`).
+5. BertAdam, warmup_proportion mặc định 0.1; BERT pretrained lr × 0.1 so với phần random.
+6. Mỗi hết epoch: `pytorch_model_{epochId}.bin`.
 
-### 7.14.2. Faiss HNSW: index chính
+![Train SCALE và eval retrieval theo source](images/scale-training-eval.png)
 
-Prototype sử dụng `IndexHNSWFlat` với inner product trên embedding đã chuẩn hóa. HNSW không cần train index; mỗi embedding mới có thể được thêm cùng `product_id` qua lớp mapping ID. Ba tham số được tune trên validation set:
+**Hình 7.9.** Trái: pretrain. Phải: extract → ranking → `evaluate_unit_v2.py`.
 
-- `M`: số liên kết của mỗi node, ảnh hưởng memory và recall.
-- `efConstruction`: độ rộng tìm kiếm khi xây graph, ảnh hưởng build time và chất lượng graph.
-- `efSearch`: độ rộng tìm kiếm khi query, là núm điều chỉnh chính cho trade-off latency–recall.
+Finetune classification: `train_cls.py` gắn head trên concat 5 pooled (`dense1: 5×hidden → bi_hidden`), Accuracy trên test, cũng lưu `pytorch_model_{epochId}.bin`. Retrieval sau CLS dùng `extract_features_cls.py` (`dense_feature_np`).
 
-HNSW phù hợp cho demo vì pipeline add vector đơn giản và latency thấp. Tuy nhiên, record bị xóa hoặc thay ảnh không nên chỉnh trực tiếp trong graph: hệ thống đánh dấu `product_id` không còn hiệu lực ở metadata mapping, lọc kết quả trước khi trả về, và rebuild index theo batch khi lượng thay đổi tích lũy vượt ngưỡng đã đặt.
+Subset đề tài: 10k, tỉ lệ 70/20/10 đủ/thiếu/unimodal để SIMCL gặp missing modality như paper.
 
-### 7.14.3. IVF-PQ/OPQ-PQ: phương án nén
+## 7.13. Đánh giá retrieval (paper + source)
 
-Khi memory của HNSW không còn phù hợp với kích thước gallery, hệ thống chuyển sang IVF-PQ. IVF phân cụm embedding thành `nlist` cell; khi query chỉ duyệt `nprobe` cell gần nhất. PQ nén mỗi vector thành mã PQ, còn OPQ là phép xoay không gian tùy chọn trước PQ để giảm sai số lượng tử hóa.
+**Không** dùng SigLIP/`downloaded_2k` khi so số paper.
 
-IVF-PQ phải được train trên một mẫu gallery đại diện trước khi add toàn bộ vector. Các tham số `nlist`, `nprobe`, số subquantizer `m` và số bit mỗi mã được chọn bằng validation benchmark; cấu hình được chấp nhận khi đạt memory budget và recall loss so với `IndexFlatIP` phù hợp với mục tiêu demo. IVF-PQ không thay thế HNSW trong bản đầu, mà là phương án scale khi benchmark cho thấy HNSW vượt memory budget.
+1. Load checkpoint (`pytorch_model_9.bin`).
+2. `extract_features.py`: `model.eval()`, `return_features=True`, ghi `*_feature_np.npy` + `id.npy`.
+3. `retrieval_unit_id_list_v2.py`: `score = query @ gallery.T`, `heapq.nlargest(max_topk=10)`, **bỏ id trùng query**.
+4. `evaluate_unit_v2.py`: GT json `id → label` (category). Positive = mọi id cùng label (kể cả query trong tập label). Với K ∈ {1,5,10}:
+   - `topk = min(K, |pos_set|, |rank_list|)`;
+   - Prec = |hit ∩ topk| / topk;
+   - AP = trung bình precision tại mỗi hit, **chia cho số hit** (không chia `min(|pos|, K)`);
+   - mAP, Prec trung bình theo query, nhân 100 khi ghi json.
 
-### 7.14.4. Quy trình benchmark và cập nhật index
+Paper Table 3–5: mAP@1,5,10 và Prec@1,5,10, cột pretrain/finetune; classification Accuracy; clustering NMI, Purity. Ablation đúng tổ hợp file npy: `ti`, `tpi`, `tpiv`, `tpiva`, …
 
-Mỗi cấu hình chạy trên cùng gallery, cùng embedding, cùng hardware và cùng tập query. Báo cáo gồm Recall@K so với `IndexFlatIP`, query latency, QPS, build time và memory footprint. Với catalog update, embedding mới được tạo offline; HNSW add tăng dần, còn IVF-PQ add sau khi index đã train. Mỗi lần rebuild phải tạo version mới của index và metadata mapping, kiểm tra trên validation set rồi mới thay thế version đang phục vụ.
+HNSW, latency, QPS là **metric hệ thống** của đề tài, báo cáo tách, không trộn vào bảng SCALE.
 
-| Thành phần | Vai trò trong hệ thống | Điều kiện sử dụng |
-| --- | --- | --- |
-| `IndexFlatIP` | Exact baseline trên vector L2-normalize. | Luôn chạy trên subset/benchmark để đo representation quality và recall loss. |
-| `IndexHNSWFlat` | Index ANN mặc định cho demo. | Dùng khi memory đáp ứng và cần latency thấp. |
-| IVF-PQ/OPQ-PQ | Index ANN nén. | Dùng khi benchmark cho thấy HNSW vượt memory budget. |
+## 7.14. Serving
 
-## 7.15. Index building pipeline
+1. API nhận payload multimodal.
+2. Preprocess + SCALE → query embedding (cùng fusion lúc export).
+3. HNSW → candidate + `S_emb`.
+4. Map metadata.
+5. Optional Mục 08 rồi cắt K.
 
-```mermaid
-flowchart TD
-    C["Catalog Products"] --> E["SCALE Embedding Extraction"]
-    E --> N["L2 Normalize"]
-    N --> B["Build Faiss HNSW / IVF-PQ Index"]
-    B --> V["Validate Recall/Precision vs IndexFlatIP"]
-    V --> S["Save Index + Metadata Mapping"]
-```
+## 7.15. Rủi ro và xử lý
 
-## 7.16. Training workflow
+| Rủi ro | Hướng xử lý |
+| --- | --- |
+| Thiếu modality | Zero + mask; `S` / `modality_weight`. |
+| Chữ/quà trên ảnh | Region 10–36 box; rerank / segment sau này. |
+| SKU gần giống | Table/MEM; `S_thuoc_tinh` Mục 08. |
+| So số paper lệch công thức AP | Bắt buộc `evaluate_unit_v2.py`. |
+| Checkpoint epoch | Báo cáo `pytorch_model_9.bin` (10 epoch), ghi chú paper viết 5 epoch. |
 
-```mermaid
-flowchart TD
-    D["M5Product Training Split"] --> A["Data Loader<br/>5 modalities + missing masks"]
-    A --> ENC["Modality Encoders"]
-    ENC --> CAT["Concatenate Tokens"]
-    CAT --> JCT["Joint Co-Transformer"]
-    JCT --> MT["Masked Tasks"]
-    JCT --> IMCL["Inter-Modality Contrastive Learning"]
-    MT --> SIMCL["SIMCL Weighting"]
-    IMCL --> SIMCL
-    SIMCL --> LOSS["Total Loss"]
-    LOSS --> OPT["Adam Optimizer"]
-    OPT --> CKPT["Model Checkpoint"]
-```
+## 7.16. Summary
 
-Training chia thành:
-
-- **Pretraining**: self-supervised masked tasks + SIMCL trên dữ liệu lớn.
-- **Finetuning**: dùng subset retrieval/classification nếu có label category/instance.
-- **Embedding export**: freeze model tốt nhất và export gallery/query embedding.
-
-Để tái lập paper, cấu hình tham chiếu là batch size 64, 5 epochs, Adam với warm-up learning rate `1e-4`; chỉ thay đổi khi giới hạn GPU hoặc subset dữ liệu buộc phải điều chỉnh. Mọi thay đổi cấu hình của nhóm phải được ghi riêng trong thực nghiệm.
-
-## 7.17. Testing and evaluation workflow
-
-```mermaid
-flowchart TD
-    Q["Query Set"] --> QE["Query Embeddings"]
-    G["Gallery Set"] --> GE["Gallery Embeddings"]
-    GE --> IDX["Faiss HNSW / IVF-PQ Index"]
-    QE --> IDX
-    IDX --> TOPK["Top-K Results"]
-    TOPK --> GT["Compare with Ground Truth"]
-    GT --> M["mAP@K / Precision@K / Recall@K / NDCG@K"]
-    IDX --> SYS["Latency / QPS / Memory / Build Time"]
-```
-
-Model quality được đo bằng retrieval metrics. System quality được đo bằng latency, QPS, memory footprint và index build/update time.
-
-## 7.18. Serving design
-
-Online serving gồm:
-
-1. Query API nhận file hoặc payload.
-2. Preprocessor chuẩn hóa modality.
-3. SCALE inference tạo query embedding.
-4. ANN service trả về candidate IDs.
-5. Metadata service map IDs sang image/product.
-6. Optional reranker sắp xếp lại bằng business rules hoặc score kết hợp.
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant API as Search API
-    participant FE as SCALE Encoder
-    participant ANN as Faiss Index
-    participant DB as Product DB
-    U->>API: Submit query
-    API->>FE: Preprocessed modality payload
-    FE-->>API: Query embedding
-    API->>ANN: Search top-K
-    ANN-->>API: Product/Image IDs + distances
-    API->>DB: Fetch metadata/images
-    DB-->>API: Product records
-    API-->>U: Ranked product images
-```
-
-## 7.19. Rủi ro và hướng xử lý
-
-| Rủi ro | Nguyên nhân | Hướng xử lý |
-| --- | --- | --- |
-| Query chỉ có image nhưng model train nhiều modality | Modal mismatch giữa train và serve. | Missing modality mask/zero imputation theo SCALE. |
-| Semantic sai dù ảnh giống | Embedding quá thiên về texture. | Tăng trọng số text/table, finetune bằng category/instance labels. |
-| Approximate index giảm recall | Approximation/quantization quá mạnh. | So sánh với `IndexFlatIP`, tune Faiss HNSW hoặc IVF-PQ, dùng rerank top-N bằng exact distance. |
-| Latency cao | SCALE inference nặng. | Cache embedding, batch offline, dùng model distillation/ONNX/TensorRT nếu cần. |
-| Catalog update | Product mới cần embedding và index update. | Incremental index hoặc rebuild định kỳ theo batch. |
-
-## 7.20. Phương pháp giải quyết các thách thức thực hiện
-
-Mỗi thách thức được xử lý ở một tầng khác nhau. SCALE và M5Product giúp model tạo embedding tốt hơn; Faiss giúp tìm kiếm nhanh; re-ranking ở Mục 08 chỉ sắp xếp lại các kết quả đã tìm được. Vì vậy, không có một thành phần nào giải quyết toàn bộ vấn đề.
-
-### 7.20.1. Sensory Gap
-
-**Vấn đề:** ảnh query có thể tối, bị crop hoặc có background khác ảnh catalog.
-
-**Hệ thống làm gì:** image regions giúp model tập trung hơn vào vùng sản phẩm; video trong catalog cung cấp thêm góc nhìn của cùng sản phẩm.
-
-**Giới hạn:** nếu ảnh query quá mờ hoặc chỉ thấy một chi tiết quá nhỏ, kết quả vẫn có thể kém. Vì vậy cần báo cáo metric riêng cho từng nhóm ảnh nhiễu.
-
-### 7.20.2. Semantic Gap
-
-**Vấn đề:** sản phẩm nhìn giống nhau nhưng khác model, material, size hoặc compatibility.
-
-**Hệ thống làm gì:** image encoder học phần nhìn thấy; text/table encoder bổ sung thông tin như brand, model, material; JCT kết hợp các nguồn này. Nếu query có text/table đáng tin cậy, attribute-aware re-ranking ở Mục 08 ưu tiên candidate khớp thuộc tính.
-
-**Giới hạn:** nếu query chỉ có ảnh, hệ thống không biết chắc ràng buộc như “iPhone 14” hay “iPhone 15”.
-
-### 7.20.3. Context-Query Gap
-
-**Vấn đề:** chỉ từ ảnh, không phải lúc nào hệ thống cũng biết người dùng muốn đúng SKU, cùng style hay sản phẩm thay thế.
-
-**Hệ thống làm gì:** hệ thống nhận thêm text/table ngắn khi có; JCT và metadata catalog dùng thông tin đó để làm rõ intent. Zero imputation cho phép model vẫn hoạt động khi một modality bị thiếu.
-
-**Giới hạn:** metadata thiếu hoặc sai không thể tự trở thành thông tin đúng. Hệ thống không dùng metadata của Top-1 để đoán ngược ý định của query.
-
-### 7.20.4. Model Gap
-
-**Vấn đề:** model có thể học tốt các category quen thuộc nhưng kém với category hiếm hoặc chưa xuất hiện trong training.
-
-**Hệ thống làm gì:** M5Product có 6.232 category và 5 modality, nên model được học từ dữ liệu đa dạng hơn dataset đơn miền.
-
-**Giới hạn:** dữ liệu đa dạng giúp giảm gap nhưng không bảo đảm đúng với sản phẩm long-tail hoặc ngoài training. Vì vậy metric và failure case phải được tách theo category.
-
-### 7.20.5. Ràng buộc hệ thống
-
-**Vấn đề:** catalog lớn làm exact search chậm; catalog thay đổi làm index cũ đi nhanh.
-
-**Hệ thống làm gì:** embedding catalog được tạo offline. `IndexFlatIP` làm mốc exact; HNSW phục vụ tìm nhanh; IVF-PQ dùng khi cần giảm memory. Exact re-ranking ở Mục 08 sửa thứ tự của Top-N sau HNSW.
-
-**Giới hạn:** HNSW/IVF-PQ vẫn có recall loss so với exact search; re-ranking không tìm lại candidate bị ANN bỏ sót. Khi catalog thay đổi nhiều, index và metadata mapping cần được rebuild/batch update.
-
-Nhờ cách tách này, thực nghiệm có thể trả lời rõ: embedding có hiểu sản phẩm không, index đã đánh đổi bao nhiêu chất lượng để đổi tốc độ, và gap nào vẫn là failure case.
-
-## 7.21. Summary
-
-SCALE + Faiss-based retrieval phù hợp với đề tài vì SCALE học representation chung cho 5 modality, còn Faiss biến embedding đó thành hệ thống truy hồi có thể đo đạc và mở rộng. Pipeline cải thiện representation và khả năng phục vụ, nhưng không tự giải quyết hoàn toàn ảnh query nhiễu, category ngoài training hay metadata sai. Vì vậy, kết quả cần được báo cáo theo Sensory, Semantic, Context-Query, Model Gap và ràng buộc hệ thống thay vì chỉ nêu một metric trung bình.
+SCALE: năm encoder, JCT, masked 15%, SIMCL `S · softmax(S)`, zero-impute. Retrieval gốc: cộng pooled nhánh + dot product + mAP/Prec@1,5,10. HNSW và rerank là phần serving của đề tài, không thay protocol so với bài báo.

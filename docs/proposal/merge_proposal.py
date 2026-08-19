@@ -15,8 +15,7 @@ SECTION_FILES = [
     "07_Methodology.md",
     "08_Improvements.md",
     "09_Expected_Result.md",
-    "10_Execution_Plan.md",
-    "11_Appendix_and_Reference.md",
+    "10_Appendix_and_Reference.md",
 ]
 
 

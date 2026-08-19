@@ -1,75 +1,84 @@
-# 08. Cải thiện đề xuất
+# 08. Hướng cải tiến phương pháp
 
-Mục 05 phân chia bốn gap và một ràng buộc hệ thống. Hai cải tiến trong mục này chỉ hoạt động ở **sau Faiss HNSW**; vì vậy chúng không thay đổi SCALE, không thay thế M5Product và không giải quyết tất cả thách thức.
-
-| Cải tiến | Liên hệ với Mục 05 | Mục đích | Không giải quyết trực tiếp |
-| --- | --- | --- | --- |
-| Exact re-ranking | Ràng buộc hệ thống ở Mục 5.6: ANN có thể xếp sai thứ tự. | Sắp xếp lại Top-N bằng điểm exact để cải thiện Top-K. | Sensory Gap, Model Gap và candidate bị HNSW bỏ sót hoàn toàn. |
-| Attribute-aware re-ranking | Semantic Gap ở Mục 5.3 và Context-Query Gap ở Mục 5.4. | Dùng thuộc tính query đáng tin cậy để ưu tiên sản phẩm tương thích. | Không giúp khi query chỉ có ảnh hoặc metadata không tin cậy. |
-
-## 8.1. Flow cơ sở và flow sau cải thiện
-
-Flow cơ sở trả trực tiếp Top-K từ HNSW. Flow mới lấy Top-N lớn hơn, tính lại điểm exact và chỉ kiểm tra thuộc tính khi query có text/table đáng tin cậy.
+Baseline Mục 07 trả top-K trực tiếp từ HNSW theo `S_emb`. Chữ quảng cáo, logo, watermark và vật thể phụ vẫn có thể làm embedding lệch, nên kết quả lọc thô chưa chắc đúng sản phẩm cần tìm. Cải tiến **không đổi SCALE**, mà thêm tái xếp hạng trên tập ứng viên.
 
 ```mermaid
 flowchart LR
-    Q["Ảnh query"] --> E["SCALE tạo embedding"]
-    G["Gallery embeddings"] --> H["Faiss HNSW"]
-    E --> H
-    H --> K["Trả Top-K"]
+    Q["Query"] --> P["Preprocess"] --> S["SCALE"] --> E["Query embedding"] --> F["Faiss HNSW"]
+    F --> N["N ứng viên"]
+    N --> R["Tái xếp hạng + điểm thuộc tính"]
+    R --> K["Top-K"]
 ```
 
-```mermaid
-flowchart LR
-    Q["Ảnh query + text/table tùy chọn"] --> E["SCALE tạo embedding"]
-    G["Gallery embeddings + metadata"] --> H["Faiss HNSW lấy Top-N"]
-    E --> H
-    H --> X["Exact re-ranking trên Top-N"]
-    X --> A{"Có text/table đáng tin cậy?"}
-    A -- "Không" --> K["Trả Top-K"]
-    A -- "Có" --> B["Attribute-aware re-ranking"]
-    B --> K
-```
+## 8.1. Giai đoạn 1: Lọc thô với Faiss HNSW
 
-## 8.2. Exact re-ranking cho ràng buộc ANN
+| | |
+| --- | --- |
+| Đầu vào | Vector `v_query` do SCALE trích từ query đa phương thức. |
+| Xử lý | Duyệt HNSW, lấy **N** listing có `S_emb` cao nhất (N > K). |
+| Đầu ra | Danh sách N ID kèm điểm tương đồng thị giác/đa phương thức `S_emb`. |
 
-**Thách thức liên quan:** Ở Mục 5.6, HNSW dùng approximate nearest-neighbor search để giảm latency. Đổi lại, các candidate có score gần nhau có thể bị xếp sai thứ tự.
+## 8.2. Giai đoạn 2: Tái xếp hạng
 
-**Cách làm:** HNSW lấy Top-N, ví dụ 100 candidate. Hệ thống tính lại inner product chính xác giữa query embedding và từng candidate trong Top-N, sau đó sắp xếp lại trước khi trả Top-K.
+Dùng metadata (siêu danh mục, danh mục, thương hiệu, thông số) để định danh lại ứng viên. Nếu HNSW đưa 100 listing gần về embedding, tầng này giữ những listing trùng thuộc tính cao hơn.
+
+Hàm chỉ thị `I(·)` = 1 nếu điều kiện đúng, = 0 nếu sai hoặc thành phần truy vấn thiếu. `Jaccard` đo trùng tập từ khóa thông số. Trọng số `α, β, γ` thỏa `α + β + γ = 1` và `α > β` (siêu danh mục quan trọng hơn danh mục chi tiết).
+
+### Hướng 1: Query có ảnh kèm văn bản
+
+Người dùng nhập ảnh kèm text chứa siêu danh mục `SD_truy_van`, danh mục `D_truy_van` hoặc thông số `S_truy_van`.
 
 ```text
-HNSW lấy Top-N -> tính exact inner product trên Top-N -> trả Top-K
+S_thuoc_tinh
+  = α · I(SD_truy_van = SD_ung_vien)
+  + β · I(D_truy_van = D_ung_vien)
+  + γ · Jaccard(S_truy_van, S_ung_vien)
 ```
 
-**Mục đích:** tăng chất lượng thứ tự Top-K nhưng không phải exact search trên toàn bộ gallery.
+### Hướng 2: Query chỉ có ảnh
 
-**Giới hạn:** bước này chỉ đổi thứ tự candidate đã có trong Top-N. Nếu HNSW không đưa sản phẩm đúng vào Top-N, re-ranking không thể khôi phục nó.
+Không có text thuộc tính. Áp dụng **phản hồi độ liên quan giả định** (pseudo relevance feedback) trên N ứng viên lọc thô:
 
-**Đánh giá:** so sánh Precision@K, Recall@K và latency trước/sau re-ranking; chọn `N` và `efSearch` bằng validation set.
+1. **Trích xuất thuộc tính**: lấy nhãn đa số trong N ứng viên.
+   - `SD*`: siêu danh mục xuất hiện nhiều nhất.
+   - `D*`: nhãn thương hiệu (danh mục suy luận) xuất hiện nhiều nhất.
+2. **Tính điểm thuộc tính** để loại listing khác siêu danh mục/thương hiệu gốc:
 
-## 8.3. Attribute-aware re-ranking cho Semantic và Context-Query Gap
+```text
+S_thuoc_tinh = α · I(SD_ung_vien = SD*) + β · I(D_ung_vien = D*)
+```
 
-**Thách thức liên quan:** Semantic Gap ở Mục 5.3 xảy ra khi sản phẩm nhìn giống nhưng khác model, size hoặc compatibility. Context-Query Gap ở Mục 5.4 xảy ra vì ảnh query không luôn nói rõ ràng buộc người dùng cần.
+với `α > β`.
 
-**Cách làm:** chỉ khi query có text hoặc bảng thuộc tính đáng tin cậy, hệ thống kiểm tra metadata của candidate trong Top-N sau exact re-ranking. Candidate khớp model, size hoặc compatibility được ưu tiên cao hơn; màu sắc/texture chỉ là thuộc tính phụ.
+Hướng 2 chỉ suy từ tập ứng viên HNSW, không lấy Top-1 làm nhãn duy nhất (Top-1 sai sẽ khuếch đại lỗi). Nếu N ứng viên lẫn nhiều ngành, `SD*`/`D*` có thể sai; ghi nhận là failure case.
 
-**Mục đích:** tránh kết quả “nhìn giống nhưng dùng sai”, ví dụ ốp iPhone 14 được xếp trên ốp iPhone 15 khi query ghi rõ “iPhone 14”.
+## 8.3. Điểm tổng hợp và Giai đoạn 3
 
-**Giới hạn:** không lấy metadata của Top-1 làm nhãn cho query vì Top-1 sai sẽ khuếch đại lỗi. Khi query chỉ có ảnh, hoặc metadata không tin cậy, hệ thống chỉ dùng exact re-ranking ở Mục 8.2.
+```text
+S_tong = λ · S_emb + (1 − λ) · S_thuoc_tinh,   λ ∈ [0, 1]
+```
 
-**Đánh giá:** đo Precision@K trên tập query có text/table và kiểm tra rằng metric chung không giảm.
+Điều phối `λ` theo ngành:
 
-## 8.4. Phần còn lại của Mục 05 được xử lý như thế nào?
+- Thời trang, ưu tiên thị giác: `λ > 0.5`.
+- Thiết bị số, ưu tiên cấu hình: `λ < 0.5`.
 
-- **Sensory Gap (Mục 5.2):** SCALE dùng image regions và catalog có nhiều view, nhưng proposal không thêm cải tiến riêng cho ảnh query nhiễu. Chất lượng được kiểm tra bằng noise slice trong evaluation.
-- **Model Gap (Mục 5.5):** M5Product có 6.232 category giúp mở rộng kiến thức model. Gap này không thể loại bỏ bằng re-ranking; cần báo cáo metric và failure case theo category, đặc biệt long-tail/out-of-distribution.
-- **Metadata noise (Mục 5.4):** attribute-aware re-ranking chỉ chạy khi metadata query đáng tin cậy; metadata nhiễu vẫn được coi là failure case, không được tự động tin tưởng.
+Giai đoạn 3: sắp xếp N ứng viên theo `S_tong` giảm dần, cắt đúng **K** listing (K < N) để hiển thị.
+
+## 8.4. Liên hệ thách thức
+
+| Thách thức | Baseline SCALE + HNSW | Cải tiến này |
+| --- | --- | --- |
+| Modality Interaction / Noise | JCT, SIMCL, zero imputation | Không thay; vẫn dùng `S_emb`. |
+| SKU gần giống, sai danh mục | Embedding có thể lẫn | `S_thuoc_tinh` ưu tiên trùng SD/D/thông số. |
+| Query chỉ ảnh | Vẫn retrieve được | Hướng 2 suy SD*, D* từ ứng viên. |
+| Chữ/logo trên ảnh | Region features, chưa lọc rác | Không xóa chữ; hướng phát triển: lọc nhiễu / segment vùng sản phẩm (Mục 09). |
 
 ## 8.5. Thứ tự triển khai
 
-1. Chạy baseline SCALE + `IndexFlatIP` + HNSW.
-2. Thêm exact re-ranking và chọn `N`, `efSearch` theo validation set.
-3. Chỉ bật attribute-aware re-ranking cho query có text/table đủ tin cậy.
-4. Báo cáo riêng hiệu quả theo gap: noise slice, category slice, query có/không có context và ANN recall loss.
+1. Baseline: SCALE + HNSW trả top-K theo `S_emb`.
+2. Lấy Top-N, bật Hướng 1 cho query có text/table.
+3. Bật Hướng 2 cho query chỉ ảnh; chọn `N`, `α, β, γ`, `λ` trên validation.
+4. Ablation: Image-Text-Video, Image-Table-Video, và mô hình đủ 5 modality; so Precision@K, AP, mAP trước/sau rerank.
 
-Hai cải tiến chỉ được giữ khi metric tốt hơn baseline tương ứng và latency vẫn đáp ứng yêu cầu demo.
+Cải tiến chỉ giữ khi metric tăng và latency demo vẫn chấp nhận được.

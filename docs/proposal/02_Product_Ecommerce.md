@@ -1,57 +1,43 @@
-# 02. Product E-commerce Image
+# 02. Đặc điểm sản phẩm thương mại điện tử
 
 ## 2.1. Khái niệm
 
-Product e-commerce image là ảnh đại diện cho sản phẩm trong môi trường thương mại điện tử. Khác với ảnh tự nhiên thông thường, ảnh sản phẩm thường gắn với mục tiêu mua bán: người dùng cần hiểu sản phẩm là gì, trông như thế nào, có thuộc tính gì, và có phù hợp với nhu cầu hay không.
+Một mẫu sản phẩm thương mại điện tử không chỉ là ảnh đại diện. Trên trang listing, người mua thường thấy đồng thời ảnh, tên/mô tả, bảng thuộc tính, đôi khi video và audio đi kèm. Các tín hiệu này cùng mô tả một SKU nhưng không trùng nội dung: ảnh nói về hình dáng, table nói về brand/chất liệu/kích thước, video nói về cách dùng.
 
-Trong visual search, ảnh sản phẩm không chỉ là dữ liệu thị giác. Nó là điểm vào để suy luận về category, brand, material, shape, color, pattern, usage scenario và đôi khi cả selling point của sản phẩm.
+Trong truy vấn, mẫu sản phẩm là đơn vị retrieval: hệ thống so khớp biểu diễn đa phương thức của query với biểu diễn đa phương thức của từng `p_i` trong kho, chứ không so từng ảnh đơn lẻ như image retrieval thuần túy.
 
-## 2.2. Các tính chất quan trọng
+## 2.2. Ba tính chất then chốt
 
-### 2.2.1. Fine-grained visual similarity
+### 2.2.1. Dữ liệu có cấu trúc
 
-Nhiều sản phẩm khác nhau có hình dáng tổng thể rất giống nhau nhưng khác ở chi tiết nhỏ: logo, pattern, texture, màu phụ, kiểu cổ áo, loại đế giày, model điện thoại. Vì vậy hệ thống cần phân biệt fine-grained attributes thay vì chỉ nhận diện category chung.
+Một mẫu sản phẩm thường gồm:
 
-### 2.2.2. Semantic similarity
+- Ảnh: appearance, màu, hình dáng.
+- Text: tên sản phẩm, caption, selling point.
+- Table: cặp key-value như thương hiệu, chất liệu, kích thước, xuất xứ.
+- Video: nhiều góc nhìn, độ đàn hồi, cách sử dụng.
+- Audio: lời giới thiệu hoặc âm thanh tách từ video.
 
-Hai ảnh có thể giống về màu và hình khối nhưng khác ý nghĩa thương mại. Ví dụ hộp pin, hộp nước hoa và hộp bánh có thể đều là hình chữ nhật; nếu chỉ dựa vào texture/shape, hệ thống dễ trả về sản phẩm sai category. Đây là semantic gap: khoảng cách giữa đặc trưng thị giác cấp thấp và ý nghĩa sản phẩm cấp cao.
+Ví dụ đồng hồ Casio trên slide: ảnh mặt đồng hồ đi cùng caption dòng Accent Color EF-130D-1A2 và bảng thuộc tính (thương hiệu, chống nước 100m, độ dày 13mm, xuất xứ Nhật Bản, loại hiển thị kim). Không modality nào tự đủ để định danh sản phẩm.
 
-### 2.2.3. Multi-view and product-level identity
+### 2.2.2. Dữ liệu không toàn vẹn
 
-Một sản phẩm thường có nhiều ảnh: mặt trước, mặt sau, cận cảnh, ảnh trên người mẫu, ảnh trong ngữ cảnh sử dụng. Người dùng có thể query bằng một góc nhìn khác với ảnh chính của catalog. Do đó hệ thống cần hiểu product-level identity thay vì chỉ so sánh từng ảnh đơn lẻ.
+Không phải listing nào cũng đủ năm modality. Người bán có thể chỉ đăng ảnh và title, thiếu table, video và audio. M5Product phản ánh đúng thực tế này: nhiều mẫu thiếu một hoặc nhiều modality, khoảng 5% là unimodal. Hệ thống không được loại các mẫu thiếu khỏi huấn luyện hay khỏi catalog; nếu loại, mất dữ liệu và retrieval kém đi vì embedding không học được listing thiếu thông tin.
 
-### 2.2.4. Noisy real-world query
+### 2.2.3. Dữ liệu cực kỳ đa dạng
 
-Ảnh query từ người dùng có thể bị crop, nén qua mạng xã hội, xoay, chèn logo, có watermark, có background phức tạp hoặc chứa nhiều object. Bài Shopsy chỉ ra các biến đổi như compression, cropping, scribbling/logo overlay là thách thức thực tế trong visual search cho reseller commerce.
+Catalog không giới hạn một ngành hàng. Giày, đồ gia dụng, đồ phòng khách, thực phẩm, đồng hồ, balo đều có thể xuất hiện. Hình dáng tổng thể của nhiều SKU gần nhau (đế giày, mũi giày, dây giày), trong khi khác nhau ở model, màu, chất liệu. Background cũng không đồng nhất: nền trắng studio, nền màu, hoặc môi trường thật.
 
-### 2.2.5. Incomplete and heterogeneous metadata
+## 2.3. Hệ quả với retrieval
 
-E-commerce catalog thường có thuộc tính không đầy đủ. Sản phẩm này có bảng material/color/brand, sản phẩm khác chỉ có title và ảnh. M5Product cũng phản ánh thực tế này khi có missing modality và long-tail distribution.
+| Tính chất | Hệ quả kỹ thuật |
+| --- | --- |
+| Có cấu trúc, nhiều modality | Cần fusion: mỗi nhánh chỉ chứa một phần thông tin sản phẩm. |
+| Không toàn vẹn | Cần cơ chế vẫn encode được mẫu thiếu modality, không discard. |
+| Đa dạng ngành hàng | Embedding phải generic, không chỉ học tốt một miền như fashion. |
 
-## 2.3. Các gap cần xử lý
+Quy trình điển hình vì vậy gồm: nhận query đa phương thức → preprocess từng modality → trích xuất embedding → so khớp trên catalog → xếp hạng top-K. Đề tài mở rộng bước so khớp ảnh-ảnh thành so khớp embedding đa phương thức, rồi thêm tái xếp hạng thuộc tính ở Mục 08.
 
-| Gap | Mô tả | Ví dụ | Tác động tới search |
-| --- | --- | --- | --- |
-| Sensory Gap | Ảnh catalog và ảnh query khác nhau về ánh sáng, góc chụp, crop hoặc compression. | Cùng một đôi giày, nhưng query chụp thiếu sáng và bị watermark. | Embedding lệch dù là cùng sản phẩm. |
-| Semantic Gap | Ảnh giống về pixel/texture nhưng khác ý nghĩa thương mại hoặc thuộc tính quyết định mua. | Hai ốp điện thoại giống màu nhưng dành cho iPhone 14 và iPhone 15. | Trả về sản phẩm nhìn giống nhưng không đúng nhu cầu mua. |
-| Context-Query Gap | Query thiếu ngữ cảnh so với catalog có title, brand, category và specification. | Chỉ có ảnh một chiếc túi, không biết người dùng cần đúng mẫu hay túi cùng kiểu. | Khó xác định tiêu chí relevance và tận dụng metadata đúng cách. |
-| Model Gap | Kiến thức mô hình chỉ bao quát các category và kiểu sản phẩm đã thấy đủ trong dữ liệu huấn luyện. | Model học tốt giày dép/quần áo nhưng nhầm cặp, ba lô hoặc trang sức. | Embedding không biểu diễn đúng sản phẩm thuộc category ít gặp hoặc ngoài phân bố dữ liệu. |
+## 2.4. Kết luận chuyển tiếp
 
-**Model Gap** khác với việc catalog có nhiều modality hoặc detector chọn sai vùng. Đây là khoảng cách giữa kiến thức model học từ dữ liệu huấn luyện và độ đa dạng của sản phẩm thực tế. Dataset M5Product giúp giảm gap này vì có hơn 6.000 category, 5 modality và dữ liệu e-commerce đa dạng hơn dataset thời trang hẹp miền. Tuy nhiên, nó không loại bỏ hoàn toàn gap: category hiếm, sản phẩm mới hoặc category không có trong training vẫn cần được đánh giá riêng theo từng nhóm category.
-
-## 2.4. Quy trình visual search điển hình
-
-Theo survey về visual search trong e-commerce, một hệ thống thường gồm các bước: nhận ảnh query, trích xuất đặc trưng, nhận diện object, so khớp similarity với database và trả về sản phẩm đề xuất. Với đề tài này, quy trình được mở rộng sang multi-modal retrieval: thay vì chỉ dùng CNN trên ảnh, hệ thống dùng multi-modal pretraining để khai thác thêm text, table, video và audio.
-
-```mermaid
-flowchart TD
-    A["Product Image / User Query"] --> B["Object & Region Understanding"]
-    B --> C["Feature Extraction"]
-    C --> D["Semantic Embedding"]
-    D --> E["Similarity Search"]
-    E --> F["Ranked Product Images"]
-```
-
-## 2.5. Kết luận chuyển tiếp
-
-Từ các đặc trưng trên, có thể thấy product image search không phải bài toán image retrieval thuần túy. Hệ thống cần vừa chống nhiễu thị giác, vừa hiểu semantic, vừa tận dụng nhiều modality trong catalog. Vì vậy, dataset và phương pháp được chọn phải đủ gần với dữ liệu e-commerce thực tế. Đây là lý do chúng tôi sử dụng M5Product và SCALE làm nền tảng cho phần tiếp theo.
+Product search trên e-commerce không phải image retrieval thuần túy. Dataset và phương pháp phải gần dữ liệu thật: nhiều modality, thiếu cặp, nhiều ngành hàng. Đây là lý do chọn M5Product và SCALE, đồng thời lấy subset 10.000 mẫu vẫn giữ tỉ lệ mẫu đủ/thiếu modality.
