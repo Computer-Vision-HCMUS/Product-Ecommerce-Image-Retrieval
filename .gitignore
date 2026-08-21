@@ -47,6 +47,9 @@ app/SCALE/examples/SCALE/missing_id.txt
 # Keep archive files ignored even under docs/
 *.zip
 
+# Temporary LaTeX/PDF render artifacts
+.tmp_improvement_render/
+
 # Frontend
 frontend/node_modules/
 frontend/dist/

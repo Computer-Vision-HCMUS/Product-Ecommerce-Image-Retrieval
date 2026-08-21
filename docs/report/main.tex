@@ -24,25 +24,33 @@
 
 \newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
 
-\title{Visual Product Search trong E-commerce:\\
-Multimodal Retrieval với SCALE, Faiss HNSW và Tái xếp hạng thuộc tính}
+\title{Tìm kiếm hình ảnh sản phẩm đa phương thức\\
+trong Thương mại Điện tử với SCALE\\
+Faiss HNSW và tái xếp hạng thuộc tính}
 
 \author{
-  \IEEEauthorblockN{Trần Hải Đức}
+  \IEEEauthorblockN{GVHD: TS. Võ Hoài Việt\\
+                    ThS. Phạm Minh Hoàng\\
+                    ThS. Phạm Thanh Tùng}
+  \IEEEauthorblockA{
+    Trường Đại học Khoa học Tự nhiên\\
+    \phantom{MSSV: 00000000} % Giữ khoảng trống căn hàng đẹp
+  }
+  \and
+  \IEEEauthorblockN{Sinh viên: Trần Hải Đức}
   \IEEEauthorblockA{
     MSSV: 23127173\\
-    Trường Đại học Khoa học Tự nhiên, VNU-HCM\\
+    Trường Đại học Khoa học Tự nhiên\\
     thduc23@clc.fitus.edu.vn
   }
   \and
-  \IEEEauthorblockN{Trần Hoàng Nam}
+  \IEEEauthorblockN{Sinh viên: Trần Hoàng Nam}
   \IEEEauthorblockA{
     MSSV: 23127232\\
-    Trường Đại học Khoa học Tự nhiên, VNU-HCM\\
+    Trường Đại học Khoa học Tự nhiên\\
     thnam23@clc.fitus.edu.vn
   }
 }
-
 \begin{document}
 \maketitle
 \thispagestyle{plain} % Hiển thị số trang cho trang đầu tiên
@@ -50,7 +58,7 @@ Multimodal Retrieval với SCALE, Faiss HNSW và Tái xếp hạng thuộc tính
 \begin{abstract}
 Tìm kiếm sản phẩm thương mại điện tử trong thực tế không chỉ dựa trên ảnh mà còn khai thác tên và mô tả sản phẩm, bảng thuộc tính, video và audio. Báo cáo này nghiên cứu bài toán truy hồi sản phẩm đa phương thức trên M5Product, trong đó mỗi listing có thể thiếu một hoặc nhiều modality. Mục tiêu là trả về các sản phẩm vừa tương đồng về biểu hiện thị giác, vừa phù hợp với ngữ nghĩa thương mại và thuộc tính quyết định mua, chẳng hạn siêu danh mục, danh mục, thương hiệu và thông số kỹ thuật.
 
-Phương pháp sử dụng SCALE (Self-harmonized ContrAstive Learning) để học unified embedding từ năm modality gồm image, text, table, video và audio. Các encoder riêng, Joint Co-Transformer, masked multimodal learning và SIMCL được dùng để mô hình hóa tương tác giữa các modality, đồng thời giảm ảnh hưởng của dữ liệu thiếu hoặc nhiễu. Trên không gian embedding đã chuẩn hóa, Faiss HNSW thực hiện truy hồi xấp xỉ nhằm thu hẹp catalog thành tập ứng viên; sau đó tầng tái xếp hạng thuộc tính kết hợp độ tương đồng embedding với mức độ khớp metadata để điều chỉnh thứ hạng cuối cùng.
+Phương pháp sử dụng SCALE (Self-harmonized ContrAstive Learning) để học unified embedding từ năm modality gồm image, text, table, video và audio. Các encoder riêng, Joint Co-Transformer, masked multimodal learning và SIMCL được dùng để mô hình hóa tương tác giữa các modality, đồng thời giảm ảnh hưởng của dữ liệu thiếu hoặc nhiễu. Trên không gian embedding đã chuẩn hóa, báo cáo đề xuất sử dụng Faiss HNSW để thu hẹp catalog thành tập ứng viên, sau đó tái xếp hạng theo metadata nhằm điều chỉnh thứ hạng cuối cùng.
 
 Kết quả thực nghiệm hiện có cho thấy cấu hình cải tiến nâng mAP@10 từ 6.32\% lên 16.75\% và Precision@10 từ 3.56\% lên 8.68\%. Báo cáo tách bạch các kết quả tái lập nội bộ với số liệu tham chiếu của SCALE, đồng thời chỉ ra thông tin cần được lưu đầy đủ trong các lần chạy tiếp theo để bảo đảm tái lập và so sánh công bằng với benchmark chính thức.
 \end{abstract}
@@ -83,7 +91,7 @@ G=\{p_1,p_2,\ldots,p_N\},
 \end{equation}
 với mỗi $p_i$ cũng có thể thiếu một số modality.
 
-Mục tiêu là trả về $K$ product entry có embedding đa phương thức gần query nhất. Khác với image retrieval thuần túy, kết quả không chỉ cần giống về màu sắc hoặc texture mà còn cần phù hợp về ngữ nghĩa thương mại như siêu danh mục, danh mục, thương hiệu và các thuộc tính quyết định mua.
+Mục tiêu là trả về $K$ sản phẩm trong catalog có embedding đa phương thức gần query nhất. Khác với image retrieval thuần túy, kết quả không chỉ cần giống về màu sắc hoặc texture mà còn cần phù hợp về ngữ nghĩa thương mại như siêu danh mục, danh mục, thương hiệu và các thuộc tính quyết định mua.
 
 \subsection{Khoảng trống nghiên cứu và Đóng góp}
 
@@ -506,14 +514,16 @@ sau đó được L2-normalize trước retrieval.
 \end{enumerate}
 
 % ============================================================
-\section{Truy hồi hiệu năng cao với Faiss HNSW}
+\section{Truy hồi với Faiss HNSW}
 % ============================================================
 
-Faiss được chọn làm tầng truy hồi vì đây là thư viện chuyên dụng cho tìm kiếm tương tự trên vector dense, hỗ trợ cả exact search để đánh giá representation và approximate nearest-neighbor search để phục vụ catalog lớn~\cite{johnson2019faiss}. Sau khi SCALE biến mỗi listing thành một embedding đã L2-normalize, bài toán online trở thành tìm các vector có inner product/cosine similarity lớn nhất. Thực hiện phép so sánh với toàn bộ catalog ở mỗi truy vấn có chi phí tuyến tính theo số listing và nhanh chóng trở thành nút thắt khi catalog tăng quy mô. Faiss cung cấp index tối ưu cho tác vụ này, có thể lưu vector, thực hiện truy vấn batch và tách lớp truy hồi khỏi representation backbone; nhờ đó có thể thay đổi hoặc cập nhật index mà không phải huấn luyện lại SCALE.
+Faiss được lựa chọn làm tầng truy hồi nhằm giải quyết trực tiếp nút thắt về chi phí tính toán trong bài toán tìm kiếm trực tuyến~\cite{johnson2019faiss}. Sau khi mô hình mã hóa chuyển đổi dữ liệu thành các vector dense đã L2-normalize, việc so sánh trực tiếp với toàn bộ catalog sẽ tốn chi phí tuyến tính $\mathcal{O}(N)$ và gây độ trễ lớn khi quy mô dữ liệu tăng cao. Faiss khắc phục vấn đề này nhờ cung cấp các cấu trúc chỉ mục tối ưu, hỗ trợ song song cả truy vấn chính xác (\textit{exact search}) để đánh giá chất lượng biểu diễn và truy vấn xấp xỉ (\textit{ANN search}). Bên cạnh đó, việc tách biệt tầng Faiss khỏi backbone còn giúp hệ thống cập nhật index linh hoạt mà không tốn chi phí huấn luyện lại mô hình gốc.
+
+Để phục vụ catalog lớn cập nhật liên tục, đề tài tích hợp thuật toán Faiss HNSW xây dựng đồ thị tìm kiếm láng giềng xấp xỉ đa tầng, cho phép thêm sản phẩm mới trực tiếp vào chỉ mục mà không cần huấn luyện lại.
 
 SCALE trong bài báo gốc sử dụng exact inner-product retrieval. Tuy nhiên, exact search có chi phí tăng tuyến tính theo số lượng listing. Đối với catalog lớn và cập nhật thường xuyên, đề tài bổ sung Faiss HNSW~\cite{malkov2020hnsw,johnson2019faiss}.
 
-HNSW xây dựng đồ thị nhiều tầng cho approximate nearest-neighbor search. Các tham số chính gồm $M$, $efConstruction$ và $efSearch$. Listing mới có thể được thêm vào index mà không cần huấn luyện một IVF index mới.
+HNSW xây dựng đồ thị nhiều tầng cho Approximate Nearest-neighbor Search. Các tham số chính gồm $M$, $efConstruction$ và $efSearch$. Listing mới có thể được thêm vào index mà không cần huấn luyện một IVF index mới.
 
 Quy trình online là:
 \begin{enumerate}[leftmargin=*]
@@ -538,7 +548,7 @@ Embedding similarity ($S_{\mathrm{emb}}$) thu được từ không gian ẩn c�
 \begin{enumerate}[leftmargin=*]
     \item \textbf{Hiện tượng trùng lặp đặc trưng thị giác khác ngành:} Các sản phẩm thuộc các danh mục hoàn toàn khác nhau có thể sở hữu vẻ ngoài tương đồng (ví dụ: một chiếc ốp điện thoại hình bao da có hoa văn chất liệu da rất dễ có vector embedding gần với một chiếc ví cầm tay da).
     \item \textbf{Nhiễu nền và thành phần phụ:} Ảnh sản phẩm e-commerce thường chứa chữ quảng cáo, logo thương hiệu, watermark hoặc mẫu nhân vật (model). Điều này khiến vector embedding bị lệch khỏi đối tượng chính.
-    \item \textbf{Bỏ sót thuộc tính quyết định:} Độ tương đồng vector chỉ phản ánh sự ``gần giống'', nhưng giao dịch e-commerce yêu cầu sự ``chính xác tuyệt đối'' về các thuộc tính cứng như thương hiệu (Brand), siêu danh mục (Super-category) hoặc danh mục chi tiết (Category).
+    \item \textbf{Bỏ sót thuộc tính quyết định:} Độ tương đồng vector chỉ phản ánh sự gần giống, nhưng giao dịch e-commerce yêu cầu sự chính xác tuyệt đối về các thuộc tính cứng như thương hiệu (Brand), siêu danh mục (Super-category) hoặc danh mục chi tiết (Category).
 \end{enumerate}
 
 Để khắc phục các điểm yếu trên, tầng tái xếp hạng dựa trên thuộc tính được tích hợp ngay sau bước lọc thô của Faiss HNSW, đóng vai trò như một bộ lọc tinh nhằm điều chỉnh điểm số dựa trên thông tin thuộc tính cấu trúc.
@@ -575,7 +585,7 @@ trong đó:
     \end{equation}
 \end{enumerate}
 
-Chiến lược bầu chọn đa số giúp giảm thiểu rủi ro so với việc lấy nhãn của duy nhất ứng viên Top-1 (vốn có thể bị nhiễu thị giác dẫn đến dự đoán sai). Tuy nhiên, trong trường hợp bước lọc thô HNSW bị lệch hoàn toàn (ví dụ: hơn 50\% tập $N$ ứng viên trả về sai ngành hàng), phương pháp PRF có thể bị khuếch đại lỗi—đây là một trường hợp thất bại (failure case) cần được cân nhắc.
+Chiến lược bầu chọn đa số giúp giảm thiểu rủi ro so với việc lấy nhãn của duy nhất ứng viên Top-1 (vốn có thể bị nhiễu thị giác dẫn đến dự đoán sai). Tuy nhiên, trong trường hợp bước lọc thô HNSW bị lệch hoàn toàn (ví dụ: hơn 50\% tập $N$ ứng viên trả về sai ngành hàng), phương pháp PRF có thể bị khuếch đại lỗi và đây là một trường hợp thất bại không mong muốn.
 
 \subsection{Hàm Điểm Tổng hợp và Điều chỉnh Miền}
 
@@ -761,9 +771,20 @@ Bài báo trình bày thiết kế visual product search mở rộng thành mult
 
 Đóng góp chính của bản báo cáo là tách bạch ba mức bằng chứng: số liệu tham chiếu từ bài báo SCALE, kết quả tái lập nội bộ đã lưu, và hệ thống end-to-end cần hoàn thiện. Bước tiếp theo là lưu đầy đủ manifest, hoàn thiện mã reranking/encoder truy vấn mới, rồi đánh giá exact retrieval, HNSW và reranking trên cùng split. Cách báo cáo này tránh nhầm lẫn giữa chất lượng representation, chất lượng ANN và hiệu năng hệ thống.
 
+
+\section*{Lời cảm ơn}
+Nhóm xin chân thành cảm ơn TS. Võ Hoài Việt đã truyền đạt những kiến thức chuyên môn quý báu và mang đến những bài giảng ý nghĩa. Thầy cũng là người đã nhiệt tình hướng dẫn, giải đáp các thắc mắc đồng thời đóng góp nhiều ý kiến giá trị từ hình thức trình bày đến nội dung chuyên môn sao cho hợp lý góp phần giúp nhóm hoàn thiện báo cáo này.
+
+Mặc dù đã cố gắng hoàn thành đồ án một cách tốt nhất nhưng bài báo cáo khó có thể tránh khỏi những hạn chế thiếu sót và nhóm rất mong nhận được sự thông cảm và góp ý từ Thầy. 
+
+
+
 % ============================================================
-\begingroup
-\renewcommand{\refname}{\vspace{-2\baselineskip}REFERENCES}
+% REFERENCES
+% ============================================================
+% Nếu muốn đổi tên tiêu đề tài liệu tham khảo và chỉnh khoảng cách nhẹ nhàng:
+\renewcommand{\refname}{REFERENCES}
+
 \begin{thebibliography}{99}
 
 \bibitem{venkatesan2025}
@@ -878,7 +899,6 @@ FFmpeg Developers,
 [Online]. Available: \url{https://ffmpeg.org/documentation.html}
 
 \end{thebibliography}
-\endgroup
 
 % ============================================================
 % APPENDIX
@@ -886,7 +906,7 @@ FFmpeg Developers,
 
 \section*{Appendix: Ký hiệu}
 
-\begin{table}[H]
+\begin{table}[h]
 \centering
 \caption{Danh sách ký hiệu và ý nghĩa}
 \label{tab:notation}
@@ -906,9 +926,9 @@ $S$ & Alignment score matrix trong SIMCL. \\
 $S(u, v)$ & Mức bổ trợ semantic giữa hai modality. \\
 $S_{\mathrm{thuoc\_tinh}}$ & Điểm khớp siêu danh mục / danh mục / thông số. \\
 $S_{\mathrm{tong}}$ & $\lambda S_{\mathrm{emb}} + (1-\lambda) S_{\mathrm{thuoc\_tinh}}$. \\
-$SD, D$ & Siêu danh mục, danh mục ($D^*$ là thương hiệu đa số). \\
+$SD, D$ & Siêu danh mục, danh mục ($D^*$ là danh mục đa số). \\
 $I(\cdot)$ & Hàm chỉ thị; 0 nếu thiếu thành phần query. \\
-$\mathrm{JCT}$ & Joint Cross-modal Transformer. \\
+$\mathrm{JCT}$ & Joint Co-Transformer. \\
 $\mathrm{SIMCL}$ & Self-harmonized Inter-Modality Contrastive Learning. \\
 $\mathrm{HNSW}$ & Hierarchical Navigable Small World (Faiss). \\
 \bottomrule
