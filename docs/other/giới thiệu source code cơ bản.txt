@@ -1,0 +1,67 @@
+GIỚI THIỆU SOURCE CODE CƠ BẢN
+
+1. Mục đích hệ thống
+
+Source code hiện thực một hệ thống tìm kiếm sản phẩm thương mại điện tử theo truy vấn đa phương thức. Mỗi sản phẩm có thể gồm ảnh, tiêu đề hoặc mô tả, bảng thuộc tính, video và âm thanh. Hệ thống dùng SCALE để biến các thông tin này thành vector đặc trưng chung; sau đó dùng Faiss HNSW để tìm nhanh các sản phẩm gần với truy vấn nhất trong catalog.
+
+Quy trình chính là:
+
+    Dữ liệu sản phẩm
+        -> tiền xử lý và trích xuất đặc trưng từng modality
+        -> huấn luyện hoặc nạp mô hình SCALE
+        -> tạo embedding cho catalog và truy vấn
+        -> lập chỉ mục Faiss HNSW
+        -> trả về Top-K sản phẩm tương tự
+
+2. Cấu trúc thư mục chính
+
+- app/datasets: tải dữ liệu M5Product, đọc metadata và chọn mẫu dữ liệu.
+- app/preprocess: chuẩn bị tập dữ liệu, chia train/validation/test/gallery và tạo mô tả hỗ trợ.
+- app/SCALE: mã nguồn mô hình SCALE, gồm dataloader, encoder, huấn luyện SIMCL, đánh giá và công cụ trích xuất đặc trưng.
+- app/encoding: tạo embedding cho sản phẩm hoặc truy vấn.
+- app/indexing: xây dựng chỉ mục Faiss và tìm kiếm vector gần nhất.
+- app/evaluation: tính các chỉ số đánh giá như Precision@K và mAP@K.
+- app/api: backend cung cấp API cho chức năng tìm kiếm.
+- frontend: giao diện để người dùng gửi truy vấn và xem sản phẩm được trả về.
+- output: lưu kết quả chạy, chẳng hạn các file metric và báo cáo PDF.
+- scripts: các lệnh PowerShell hỗ trợ chạy huấn luyện, backend và frontend.
+
+3. Chuẩn bị dữ liệu
+
+Dữ liệu gốc được đọc từ metadata M5Product. Hệ thống chọn một subset cân bằng theo nhóm ngành hàng, sau đó chia dữ liệu thành train, validation, test và gallery. Train dùng để học mô hình; validation hỗ trợ theo dõi quá trình huấn luyện; test đóng vai trò truy vấn đánh giá; gallery là catalog để tìm kiếm.
+
+Với thí nghiệm hiện tại, nhóm sử dụng 10.000 sản phẩm và chia theo tỉ lệ 70/20/10. Việc cố định seed khi chia dữ liệu giúp các lần chạy sau có thể tái lập cùng protocol.
+
+4. Tiền xử lý năm modality
+
+- Image: ảnh sản phẩm được đưa qua Faster R-CNN để lấy 36 vùng ảnh nổi bật. Mỗi vùng được biểu diễn bằng một vector đặc trưng.
+- Text: tiêu đề hoặc mô tả được tokenizer của BERT chuyển thành chuỗi token trước khi mã hoá.
+- Table: các thuộc tính dạng key-value, ví dụ thương hiệu, màu sắc hoặc kích thước, được chuẩn hoá thành biểu diễn văn bản có cấu trúc.
+- Video: video được tách thành các khung hình để trích xuất đặc trưng thị giác theo thời gian.
+- Audio: âm thanh được chuyển thành đặc trưng phổ để mô hình có thể xử lý.
+
+Một sản phẩm có thể thiếu một hoặc nhiều modality. Trong trường hợp đó, hệ thống dùng mặt nạ attention và biểu diễn thay thế để mô hình nhận biết modality nào thực sự không có dữ liệu.
+
+5. Mô hình SCALE
+
+SCALE trước hết mã hoá riêng từng modality. Các đặc trưng sau đó được kết hợp bằng Joint Co-Transformer (JCT), gồm self-attention để học quan hệ bên trong mỗi modality và cross-attention để trao đổi thông tin giữa các modality.
+
+Trong giai đoạn pretraining, mô hình được học bằng SIMCL. Một phần token hoặc feature được che có chủ đích và mô hình phải dự đoán lại phần đó; đồng thời các modality của cùng một sản phẩm được kéo gần nhau trong không gian embedding. Kết quả là mỗi sản phẩm có một vector đại diện có thể dùng trực tiếp cho truy hồi.
+
+6. Lập chỉ mục và tìm kiếm
+
+Sau khi catalog đã được mã hoá, các embedding được L2-normalize và đưa vào chỉ mục Faiss HNSW. HNSW giúp giảm thời gian tìm kiếm trên catalog lớn so với việc so sánh lần lượt với mọi sản phẩm.
+
+Khi người dùng gửi truy vấn, hệ thống thực hiện cùng tiền xử lý và mã hoá để tạo embedding truy vấn. Faiss trả về N ứng viên gần nhất; từ đó hệ thống có thể tái xếp hạng theo metadata như ngành hàng, thương hiệu hoặc thuộc tính sản phẩm trước khi trả về Top-K kết quả cuối cùng.
+
+7. Huấn luyện, đánh giá và vận hành
+
+Pipeline SCALE gồm các giai đoạn: chuẩn bị dữ liệu, trích xuất feature, chuyển dữ liệu sang định dạng mô hình, pretrain, tạo embedding cho test/gallery, đánh giá và tạo chỉ mục Faiss. Các script trong app/training và scripts giúp chạy tuần tự các giai đoạn này.
+
+Kết quả đánh giá được lưu trong output. Các metric chính gồm Precision@K và mAP@K. Khi đọc kết quả cần ghi kèm split dữ liệu, checkpoint, seed, số query và tham số tìm kiếm để bảo đảm phép so sánh có ý nghĩa.
+
+8. Lưu ý về trạng thái hiện tại
+
+Mã nguồn có cả pipeline SCALE bám theo bài báo và một pipeline SigLIP rút gọn. Báo cáo của nhóm tập trung vào pipeline SCALE. Một số bước trong source được điều chỉnh để phù hợp phần cứng Windows/GPU hiện có, vì vậy kết quả local cần được so sánh cẩn thận với benchmark công bố của M5Product-SCALE.
+
+Để tái lập thí nghiệm đầy đủ, cần lưu đồng thời metadata đã dùng, danh sách sản phẩm của từng split, checkpoint mô hình, cấu hình Faiss và file kết quả đánh giá.
