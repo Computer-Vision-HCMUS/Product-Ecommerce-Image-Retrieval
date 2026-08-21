@@ -44,6 +44,9 @@ app/SCALE/examples/SCALE/missing_id.txt
 # Re-allow small repo assets if any (none today; add exceptions here if needed)
 !docs/**
 
+# Keep archive files ignored even under docs/
+*.zip
+
 # Frontend
 frontend/node_modules/
 frontend/dist/
