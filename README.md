@@ -1,359 +1,187 @@
-# SCALE - Multi-modal Product Retrieval (M5Product)
+# Tìm kiếm sản phẩm đa phương thức với SCALE
 
-Pipeline end-to-end tren Windows: **download dataset -> split -> extract features -> pretrain SCALE (SIMCL) -> evaluate (paper metric) -> Faiss API**.
+> Hệ thống truy hồi sản phẩm thương mại điện tử kết hợp biểu diễn đa phương thức của **SCALE**, chỉ mục gần đúng **Faiss HNSW** và tái xếp hạng theo metadata.
 
-Co hai pipeline trong repo:
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.4%2B-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![Frontend](https://img.shields.io/badge/Frontend-React%20%2B%20Vite-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
 
-| Pipeline | Script | Mo ta |
-|----------|--------|-------|
-| **SCALE paper (khuyen nghi)** | `app/training/run_pipeline_scale.ps1` | 5 modality, BERT + JCT, loss SIMCL, metric `evaluate_unit_v2` |
-| SigLIP simplified | `app/training/run_pipeline.ps1` | Fusion SigLIP nhe, khong phai paper SCALE |
+## Mục lục
 
-Tai lieu nay mo ta **SCALE paper pipeline**.
+- [Tổng quan](#tổng-quan)
+- [Luồng hoạt động](#luồng-hoạt-động)
+- [Tính năng](#tính-năng)
+- [Cài đặt nhanh](#cài-đặt-nhanh)
+- [Chạy hệ thống](#chạy-hệ-thống)
+- [Tái lập pipeline SCALE](#tái-lập-pipeline-scale)
+- [Cấu trúc dự án](#cấu-trúc-dự-án)
+- [Đánh giá và kết quả](#đánh-giá-và-kết-quả)
+- [Giới hạn hiện tại](#giới-hạn-hiện-tại)
 
----
+## Tổng quan
 
-## Yeu cau
+Tìm kiếm sản phẩm chỉ bằng từ khoá thường không khai thác hết thông tin có trong một listing thương mại điện tử. Dự án này xây dựng một pipeline có thể tiếp nhận **ảnh, văn bản, bảng thuộc tính, video và âm thanh**, đưa chúng về không gian embedding thống nhất bằng SCALE, rồi truy hồi sản phẩm tương tự trong catalog.
 
-- **OS:** Windows 10/11
-- **Python:** 3.12
-- **GPU:** NVIDIA (khuyen nghi >=6 GB VRAM)
-- **CUDA PyTorch:** cai wheel phu hop tu [pytorch.org](https://pytorch.org/get-started/locally/)
+SCALE tập trung trả lời câu hỏi: *truy vấn và sản phẩm có cùng ngữ nghĩa hay không?* Faiss HNSW giải quyết phần phục vụ: *làm thế nào tìm nhanh trong catalog lớn?* Sau bước truy hồi, metadata có thể được dùng để tái xếp hạng các ứng viên gần nhất.
+
+Nguồn dữ liệu nghiên cứu là **M5Product**. Thí nghiệm cục bộ sử dụng subset 10.000 sản phẩm, chia train/validation/test theo tỉ lệ 70/20/10.
+
+## Luồng hoạt động
+
+```mermaid
+flowchart LR
+    A[Listing M5Product<br/>Image · Text · Table · Video · Audio] --> B[Tiền xử lý<br/>và trích xuất feature]
+    B --> C[SCALE<br/>Unimodal encoders + JCT]
+    C --> D[Embedding đã L2-normalize]
+    D --> E[Faiss HNSW<br/>Lập chỉ mục catalog]
+
+    Q[Truy vấn đa phương thức] --> P[Tiền xử lý cùng pipeline]
+    P --> R[SCALE encoder]
+    R --> S[Faiss: N ứng viên gần nhất]
+    E --> S
+    S --> T[Metadata reranking]
+    T --> U[Top-K sản phẩm]
+```
+
+## Tính năng
+
+- **Truy vấn đa phương thức:** hỗ trợ ít nhất một trong các modality ảnh, văn bản, bảng thuộc tính, video hoặc audio.
+- **Representation theo SCALE:** mã hoá riêng từng modality, sau đó kết hợp qua Joint Co-Transformer (JCT).
+- **Pretraining SIMCL:** kết hợp masked modeling và contrastive learning liên modality.
+- **Faiss HNSW:** lập chỉ mục và truy hồi vector gần đúng với độ trễ thấp hơn tìm kiếm tuần tự.
+- **Tái xếp hạng theo metadata:** ưu tiên các ứng viên phù hợp hơn về category, thương hiệu hoặc thuộc tính khi cấu hình improved pipeline.
+- **API và giao diện web:** FastAPI phục vụ tìm kiếm, React/Vite hiển thị kết quả.
+- **Đánh giá tái lập:** có script cho Precision@K và mAP@K trên split đã chuẩn bị.
+
+## Cài đặt nhanh
+
+### Yêu cầu
+
+- Windows 10/11
+- Python 3.12
+- Node.js 18+ và npm
+- GPU NVIDIA có CUDA được khuyến nghị cho trích xuất feature và huấn luyện
+
+> PyTorch có CUDA cần được cài bằng wheel tương ứng với máy trước khi cài các dependency còn lại. Xem hướng dẫn chính thức tại [pytorch.org](https://pytorch.org/get-started/locally/).
 
 ```powershell
-cd Y:\SCALE
-python -m pip install -r app/requirements-windows.txt
+git clone <repository-url>
+cd "Product Ecommerce Image Retrieval"
+
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r app/requirements-windows.txt
 ```
 
-**Tuy chon:** Detectron2 cho region feature chuan paper. Neu khong cai, script tu fallback **torchvision Faster R-CNN** (feature pad len 2048-d).
+## Chạy hệ thống
 
----
+### 1. Chuẩn bị artifacts
 
-## Cau truc thu muc sau khi chay xong
+Backend SCALE cần artifacts đã được tạo trước, gồm metadata, embedding, chỉ mục HNSW và checkpoint. Đặt chúng trong thư mục `artifacts/scale_paper/` hoặc cấu hình biến môi trường `SCALE_WORK_DIR` đến thư mục phù hợp.
 
-```
-artifacts/scale_paper/
-├── id_label.json              # title / pv / label cho moi product
-├── path_manifest.json         # duong dan anh / video
-├── train_ids.json             # split train (~5953)
-├── test_ids.json              # query eval
-├── gallery_ids.json           # gallery eval
-├── tsv_features/features.tsv  # region 36x2048
-├── video_feature/*.npy        # S3D 12x1024
-├── audio_feature/*.npy        # mel 12 frames
-├── lmdb_features/             # train/test/gallery LMDB
-├── checkpoints/scale_paper_simcl/pytorch_model_*.bin
-├── features/{test,gallery}/   # tpiva embeddings sau pretrain
-├── retrieval_results/         # rank list cho evaluate_unit_v2
-├── evaluation_benchmark.json  # mAP/Prec@1/5/10 (paper protocol)
-├── index_hnsw/                # Faiss cho API
-└── pretrain.log
-```
+Các tệp lớn như dữ liệu gốc, video, feature, checkpoint và index không được đưa vào Git. Hãy lấy chúng từ bộ dữ liệu/Drive nộp bài của nhóm trước khi chạy.
 
----
+### 2. Khởi động backend
 
-## Full pipeline (tung buoc)
-
-Thay `Y:\SCALE` bang duong dan repo cua ban.
+Mở PowerShell tại thư mục gốc của dự án:
 
 ```powershell
-$py = "C:\Users\SenetUser\AppData\Local\Programs\Python\Python312\python.exe"
-$repo = "Y:\SCALE"
-$env:PYTHONPATH = "$repo\app\SCALE;$repo\app"
-Set-Location $repo
+.\scripts\start_backend.ps1
 ```
 
-### Buoc 0 - Metadata M5Product (mot lan)
+API chạy tại `http://127.0.0.1:8000`. Có thể kiểm tra trạng thái index tại:
 
-Can file metadata goc (khong commit vi lon):
-
-- `app/datasets/product1m_product5m_id_label.json`
-
-Tai tu [M5Product dataset](https://xiaodongsuper.github.io/M5Product_dataset/download.html).
-
----
-
-### Buoc 1 - Download & chon subset can bang
-
-Script: `app/datasets/download-dataset-tools.py`
-
-```powershell
-& $py app/datasets/download-dataset-tools.py `
-  --input app/datasets/product1m_product5m_id_label.json `
-  --output app/datasets/downloaded_m5product_balanced `
-  --super-categories 50 `
-  --per-super-category 200 `
-  --workers 16 `
-  --resume
+```text
+GET http://127.0.0.1:8000/health
 ```
 
-**Output:** `metadata.json`, `manifest.jsonl`, anh/video da tai.
+### 3. Khởi động frontend
 
-Test nhanh:
+Mở một PowerShell khác:
 
 ```powershell
---max-products 1000
+.\scripts\start_frontend.ps1
 ```
 
----
+Giao diện chạy tại `http://127.0.0.1:5173`.
 
-### Buoc 2 - Tao split train / val / test / gallery
+## Tái lập pipeline SCALE
 
-Script: `app/preprocess/prepare_subset.py`
+Pipeline đầy đủ gồm: tải/chọn dữ liệu, tạo split, trích xuất feature, xây dựng LMDB, pretrain SCALE, tạo embedding, đánh giá và lập chỉ mục Faiss.
 
-Split theo **label** (cung label = positive khi eval). Khong phai GT chinh thuc M5Product benchmark, nhung dung duoc voi `evaluate_unit_v2` tren subset.
-
-```powershell
-& $py app/preprocess/prepare_subset.py `
-  --dataset-dir app/datasets/downloaded_m5product_balanced `
-  --output-dir artifacts/scale_paper_splits `
-  --seed 42
+```mermaid
+flowchart TD
+    A[Metadata M5Product] --> B[Chọn subset cân bằng]
+    B --> C[Chia train / val / test / gallery]
+    C --> D[Trích xuất image, video, audio feature]
+    D --> E[Chuyển dữ liệu sang LMDB]
+    E --> F[Pretrain SCALE với SIMCL]
+    F --> G[Tạo embedding test và gallery]
+    G --> H[Đánh giá Precision@K, mAP@K]
+    G --> I[Xây dựng Faiss HNSW]
 ```
 
-**Output:** `train.json`, `val.json`, `test.json`, `gallery.json`, `records.json`.
-
----
-
-### Buoc 3 - Convert sang layout SCALE
-
-Script: `app/SCALE/preprocess/convert_balanced_to_scale.py`
+Sau khi đã có dữ liệu và split, có thể chạy pipeline chính:
 
 ```powershell
-& $py app/SCALE/preprocess/convert_balanced_to_scale.py `
-  --dataset-dir app/datasets/downloaded_m5product_balanced `
-  --splits-dir artifacts/scale_paper_splits `
-  --output-dir artifacts/scale_paper
-```
-
----
-
-### Buoc 4 - Extract sidecar features
-
-#### 4a. Region features -> TSV (lau nhat, vai gio cho 10K)
-
-```powershell
-& $py app/SCALE/tools/bp_feature/extract/extract_regions_windows.py `
-  --id-label artifacts/scale_paper/id_label.json `
-  --path-manifest artifacts/scale_paper/path_manifest.json `
-  --output-tsv artifacts/scale_paper/tsv_features/features.tsv `
-  --backend auto
-```
-
-`--backend detectron2` neu da cai Detectron2; `auto` thu Detectron2 roi fallback torchvision.
-
-#### 4b. Video (S3D) + audio mp3
-
-```powershell
-& $py app/SCALE/preprocess/extract_video_audio.py `
-  --path-manifest artifacts/scale_paper/path_manifest.json `
-  --video-output-dir artifacts/scale_paper/video_feature `
-  --audio-output-dir artifacts/scale_paper/audios `
-  --zero-fill-missing `
-  --reextract-zero
-```
-
-#### 4c. Audio mel -> `.npy`
-
-```powershell
-& $py app/SCALE/tools/audio_process/save_audio_feature.py `
-  --id-label artifacts/scale_paper/id_label.json `
-  --audio-dir artifacts/scale_paper/audios `
-  --output-dir artifacts/scale_paper/audio_feature `
-  --zero-fill-missing
-```
-
----
-
-### Buoc 5 - Build LMDB (Windows: bat buoc `--map-size-gb 8`)
-
-Tensorpack mac dinh 128 MB tren Windows -> **mat ~50% record** neu khong tang map size.
-
-```powershell
-foreach ($split in @("train","test","gallery")) {
-  & $py app/SCALE/tools/bp_feature/convert/convert_from_config.py `
-    --tsv-dir artifacts/scale_paper/tsv_features `
-    --output-lmdb artifacts/scale_paper/lmdb_features/${split}_feature.lmdb `
-    --ids-file artifacts/scale_paper/${split}_ids.json `
-    --tsv-name features.tsv `
-    --map-size-gb 8
-}
-```
-
-**Verify:** train LMDB phai ~ **5953** entries (khong phai ~2958).
-
----
-
-### Buoc 6 - Pretrain SIMCL (MLM+MRM+MEM+MFM+MAM+CLR)
-
-Khuyen nghi: `scripts/start_pretrain.ps1` (log realtime, tranh chay trung process).
-
-```powershell
-powershell -NoProfile -File scripts/start_pretrain.ps1 -TrainEpochs 10
-```
-
-Theo doi log:
-
-```powershell
-Get-Content artifacts/scale_paper/pretrain.log -Wait -Tail 15
-```
-
-**Resume** tu checkpoint:
-
-```powershell
-powershell -NoProfile -File scripts/start_pretrain.ps1 `
-  -TrainEpochs 10 `
-  -StartEpoch 1 `
-  -FromCheckpoint "Y:\SCALE\artifacts\scale_paper\checkpoints\scale_paper_simcl\pytorch_model_0.bin" `
-  -AppendLog
-```
-
-| Tham so | Gia tri | Ghi chu |
-|---------|---------|---------|
-| train_batch_size | 16 | effective batch |
-| gradient_accumulation_steps | 8 | micro-batch = 2 |
-| num_train_epochs | 10 | paper dung `pytorch_model_9.bin` |
-| FP16 | **tat** | Apex fp16 khong on tren Windows |
-
-**Thoi gian uoc tinh (5953 train, GTX 1660 SUPER):**
-
-| Epoch | ~Thoi gian |
-|-------|------------|
-| 1 | ~15 phut |
-| 10 | ~2.5 gio |
-
-Checkpoint: `artifacts/scale_paper/checkpoints/scale_paper_simcl/pytorch_model_{epoch}.bin` (~1 GB/epoch).
-
----
-
-### Buoc 7 - Extract embedding + Evaluate + Faiss
-
-Script: `app/SCALE/preprocess/resume_pipeline.py`
-
-```powershell
-& $py app/SCALE/preprocess/resume_pipeline.py `
-  --work-dir artifacts/scale_paper `
-  --skip-wait `
-  --skip-lmdb `
-  --skip-pretrain
-```
-
-Chi eval lai (feature da co):
-
-```powershell
-& $py app/SCALE/preprocess/resume_pipeline.py `
-  --work-dir artifacts/scale_paper `
-  --skip-wait --skip-lmdb --skip-pretrain --skip-extract
-```
-
-**Metric paper:** `evaluate_unit_v2` -> `evaluation_benchmark.json`
-
-| Field | Y nghia |
-|-------|---------|
-| mAP | mAP@1 / @5 / @10 |
-| Prec | Precision@1 / @5 / @10 |
-| Feature type | `--eval-feature-types tpiva` (5 modality) |
-
-So sanh paper: [M5Product Benchmark - SCALE tpiva](https://xiaodongsuper.github.io/M5Product_dataset/benchmark.html) (subset finetune mAP@10 ~ **71.5**).
-
----
-
-### Buoc 8 - Chay API retrieval
-
-```powershell
-powershell -NoProfile -File scripts/start_backend.ps1
-powershell -NoProfile -File scripts/start_frontend.ps1
-```
-
-Backend dung `SCALE_BACKEND=paper`, `SCALE_WORK_DIR=artifacts/scale_paper`, index Faiss trong `index_hnsw/`.
-
----
-
-## One-shot script (tat ca phase)
-
-Chay buoc 1-2 truoc, roi:
-
-```powershell
-powershell -NoProfile -File app/training/run_pipeline_scale.ps1 `
-  -DatasetDir app/datasets/downloaded_m5product_balanced `
-  -SplitsDir artifacts/scale_paper_splits `
-  -WorkDir artifacts/scale_paper `
+.\app\training\run_pipeline_scale.ps1 `
+  -DatasetDir app\datasets\downloaded_m5product_balanced `
+  -SplitsDir artifacts\scale_paper_splits `
+  -WorkDir artifacts\scale_paper `
   -TrainEpochs 10 `
   -BatchSize 16 `
   -GradAccum 8
 ```
 
-Flags huu ich:
+Để thử nhanh với số lượng nhỏ, dùng thêm `-SmokeTest`. Các tham số cần được ghi lại cùng seed, checkpoint và split khi báo cáo metric.
 
-| Flag | Y nghia |
-|------|---------|
-| `-PrepareOnly` | Chi convert layout (buoc 3) |
-| `-SkipFeatures` | Bo extract + LMDB |
-| `-SkipPretrain` | Bo pretrain |
-| `-SkipEval` | Bo evaluate_unit_v2 |
-| `-Limit 50` | Smoke test 50 san pham |
-| `-SmokeTest` | `-Limit 50 -TrainEpochs 1` |
+## Cấu trúc dự án
 
----
-
-## Resume sau khi gian doan
-
-| Tinh huong | Lenh |
-|------------|------|
-| Download do | `download-dataset-tools.py --resume` |
-| Region TSV do | Chay lai `extract_regions_windows.py` (append) |
-| Pretrain do | `start_pretrain.ps1 -StartEpoch N -FromCheckpoint ... -AppendLog` |
-| Chi eval lai | `resume_pipeline.py --skip-pretrain --skip-extract ...` |
-| Backup Google Drive | Sync ca `artifacts/scale_paper/` (~10-20 GB) |
-
----
-
-## Kien truc pretrain (SIMCL)
-
-```
-Title, Table(pv), Image, Video, Audio
-    -> embedding rieng -> encoder 6L/modality
-    -> CLR (contrastive + DyCTR graph)
-    -> JCT cross_encoder 6L
-    -> MLM + MEM + MRM + MFM + MAM + CLR
+```text
+.
+├── app/
+│   ├── api/             # FastAPI: endpoint tìm kiếm và health check
+│   ├── datasets/        # Tải M5Product, metadata, chọn mẫu
+│   ├── preprocess/      # Tạo split và chuẩn bị dữ liệu
+│   ├── SCALE/           # Mô hình SCALE, dataloader, pretrain và evaluation
+│   ├── encoding/        # Mã hoá sản phẩm/truy vấn thành embedding
+│   ├── indexing/        # Faiss HNSW và metadata reranking
+│   ├── evaluation/      # Metric và retrieval evaluation
+│   └── training/        # Script điều phối pipeline
+├── frontend/            # React + Vite
+├── scripts/             # Lệnh chạy backend, frontend, pretrain
+├── docs/                # Proposal, báo cáo, hình và tài liệu nộp bài
+├── output/              # Kết quả metric và PDF đầu ra
+└── README.md
 ```
 
-- **SIMCL** = tong 6 loss tren (khong gom ITM).
-- **CLR** = contrastive loss giua cac cap modality.
+## Đánh giá và kết quả
+
+Các chỉ số chính:
+
+| Chỉ số | Ý nghĩa |
+|---|---|
+| Precision@K | Tỷ lệ kết quả liên quan trong K sản phẩm đầu tiên. |
+| mAP@K | Chất lượng thứ hạng trung bình, xét vị trí của các kết quả liên quan. |
+| Latency | Thời gian phản hồi của truy vấn, đặc biệt quan trọng khi dùng ANN. |
+
+Kết quả local phải được đọc trong đúng bối cảnh: subset sử dụng, cách định nghĩa positive, số query, seed, checkpoint, tham số HNSW và cấu hình reranking. Không nên so sánh trực tiếp với benchmark M5Product công bố khi protocol hoặc pipeline tiền xử lý khác nhau.
+
+## Giới hạn hiện tại
+
+- Source có hai hướng chạy: pipeline SCALE bám sát bài báo và một pipeline SigLIP rút gọn. Báo cáo và hướng dẫn này ưu tiên SCALE.
+- Vì giới hạn phần cứng, một số bước local chưa trùng hoàn toàn protocol gốc: source hiện tại cố định 36 vùng ảnh, dùng tối đa 12 frame đầu của video và biểu diễn audio bằng log-mel spectrogram.
+- Tái xếp hạng metadata và luồng SCALE end-to-end cần được kiểm chứng bằng manifest chạy đầy đủ trước khi được xem là benchmark chính thức.
+- M5Product và các artifacts lớn không được kèm trong repository.
+
+## Tài liệu tham khảo
+
+- Báo cáo dự án: [`docs/report/main-report.pdf`](docs/report/main-report.pdf)
+- Giới thiệu mã nguồn cho giảng viên: [`docs/other/giới thiệu source code cơ bản.txt`](docs/other/giới%20thiệu%20source%20code%20cơ%20bản.txt)
+- M5Product-SCALE: [paper và benchmark chính thức](https://xiaodongsuper.github.io/M5Product_dataset/)
+- Faiss: [tài liệu chính thức](https://faiss.ai/)
 
 ---
 
-## Troubleshooting
-
-| Trieu chung | Nguyen nhan | Cach sua |
-|-------------|-------------|----------|
-| LMDB train ~2958 thay vi ~5953 | map_size 128 MB tren Windows | Rebuild voi `--map-size-gb 8` |
-| NaN loss, batch skip | CLR + modality thieu | Binh thuong rai rac; train tiep |
-| FP16 crash | Apex tren Windows | Khong dung `--fp16` |
-| mAP = 0 sau 1 epoch | Model chua hoc | Train >=10 epoch tren LMDB du |
-| Metric thap hon paper | Thieu finetune, torchvision region, zero-fill video/audio | Xem muc cai thien them |
-
-### Cai thien them (tuy chon, gan paper hon)
-
-1. **Finetune:** `app/SCALE/examples/SCALE/train_cls.py` + `run_train_cls.sh` (can `label_list.json`)
-2. **Detectron2 region** thay torchvision
-3. **Video/audio** extract day du, giam zero-fill
-4. **Finetune + eval** tren protocol M5Product official GT (neu co file GT day du)
-
----
-
-## Scripts tham chieu nhanh
-
-| Script | Muc dich |
-|--------|----------|
-| `app/datasets/download-dataset-tools.py` | Download + can bang subset |
-| `app/preprocess/prepare_subset.py` | Split train/val/test/gallery |
-| `app/SCALE/preprocess/convert_balanced_to_scale.py` | Layout SCALE |
-| `app/SCALE/tools/bp_feature/extract/extract_regions_windows.py` | Region TSV |
-| `app/SCALE/preprocess/extract_video_audio.py` | Video S3D |
-| `app/SCALE/tools/audio_process/save_audio_feature.py` | Audio mel |
-| `app/SCALE/tools/bp_feature/convert/convert_from_config.py` | LMDB |
-| `scripts/start_pretrain.ps1` | Pretrain SIMCL |
-| `app/SCALE/preprocess/resume_pipeline.py` | Extract + evaluate_unit_v2 + Faiss |
-| `app/training/run_pipeline_scale.ps1` | Full pipeline (PowerShell) |
-| `scripts/start_backend.ps1` | FastAPI paper backend |
-| `scripts/start_frontend.ps1` | UI |
+Đây là đồ án học thuật; kết quả công bố trong report được diễn giải theo đúng cấu hình và dữ liệu đã chạy.
