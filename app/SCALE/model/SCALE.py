@@ -1809,15 +1809,22 @@ class BertForMultiModalPreTraining(BertPreTrainedModel):
             audio_loss * (audio_label == 1).unsqueeze(2).float()
         ) / max(torch.sum((audio_label == 1).unsqueeze(2).expand_as(audio_loss)), 1)
 
-        masked_lm_loss = self.loss_fct(
-            prediction_scores_t.view(-1, self.config.vocab_size),
-            masked_lm_labels.view(-1),
-        )
+        # CrossEntropyLoss(mean) returns NaN when every target is ignore_index.
+        # This occurs naturally for short text/PV fields when random masking picks
+        # no token.  Treat that task as contributing zero loss for this batch.
+        lm_logits = prediction_scores_t.view(-1, self.config.vocab_size)
+        lm_targets = masked_lm_labels.view(-1)
+        if torch.any(lm_targets != -1):
+            masked_lm_loss = self.loss_fct(lm_logits, lm_targets)
+        else:
+            masked_lm_loss = lm_logits.sum() * 0.0
 
-        masked_em_loss = self.loss_fct(
-            prediction_scores_pv.view(-1, self.config.vocab_size),
-            masked_em_labels.view(-1),
-        )
+        em_logits = prediction_scores_pv.view(-1, self.config.vocab_size)
+        em_targets = masked_em_labels.view(-1)
+        if torch.any(em_targets != -1):
+            masked_em_loss = self.loss_fct(em_logits, em_targets)
+        else:
+            masked_em_loss = em_logits.sum() * 0.0
 
         if return_features:
             return masked_lm_loss.unsqueeze(0),\

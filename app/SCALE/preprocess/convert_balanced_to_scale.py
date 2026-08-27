@@ -42,28 +42,59 @@ def main() -> None:
     metadata = read_json(metadata_path)
     manifest = load_manifest(manifest_path)
 
+    # Only materialize records actually retained by the split. This prevents
+    # failed downloads and labels dropped by prepare_subset from reaching
+    # feature extraction or training.
+    included_ids: set[str] = set()
+    for split_name in ("train", "val", "test", "gallery"):
+        split_file = args.splits_dir / f"{split_name}.json"
+        if split_file.is_file():
+            split_data = read_json(split_file)
+            included_ids.update(str(product_id) for product_id in split_data.get("ids", split_data))
+    if not included_ids:
+        raise SystemExit("No split IDs found. Run prepare_subset.py before conversion.")
+
     id_label: dict[str, dict[str, str]] = {}
     path_manifest: dict[str, dict[str, str | None]] = {}
     labels: set[str] = set()
 
     for product_id, meta in metadata.items():
+        if product_id not in included_ids:
+            continue
         row = manifest.get(product_id, meta)
+        # The downloader retains raw media for future ablations, but this
+        # conversion must expose only the modality view selected for this run.
+        # Older datasets without this field remain backward compatible.
+        availability = row.get("modality_present") or meta.get("modality_present") or {}
+        title_available = availability.get("title", True)
+        pv_available = availability.get("pv", True)
+        video_available = availability.get("video_url", True)
+        audio_available = availability.get("audio", True)
         title = str(row.get("title") or meta.get("title") or "").strip()
         pv = str(row.get("pv") or meta.get("pv") or "").strip()
         label = str(row.get("label") or meta.get("label") or "").strip()
         super_category = str(row.get("super_category") or meta.get("super_category") or "").strip()
+        if not title_available:
+            title = ""
+        if not pv_available:
+            pv = ""
         if not title and not label:
             continue
+        raw_video_path = row.get("video_path")
+        video_path = str(raw_video_path) if video_available and raw_video_path and Path(raw_video_path).is_file() else None
         id_label[product_id] = {
             "title": title,
             "pv": pv,
             "label": label,
             "super_category": super_category,
+            "modality_source": str(row.get("modality_source") or meta.get("modality_source") or "unknown"),
+            "masked_modalities": list(row.get("masked_modalities") or meta.get("masked_modalities") or []),
+            "audio_available": bool(audio_available),
         }
         labels.add(label)
         path_manifest[product_id] = {
             "image_path": row.get("image_path"),
-            "video_path": row.get("video_path"),
+            "video_path": video_path,
         }
 
     out = args.output_dir

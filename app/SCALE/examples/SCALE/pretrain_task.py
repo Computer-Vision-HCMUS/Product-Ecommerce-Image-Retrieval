@@ -407,20 +407,21 @@ def main():
                 next_sentence_loss = next_sentence_loss.mean()
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps
-            if args.fp16:
-                optimizer.backward(loss)
-            else:
-                loss.backward()
-
-            if math.isnan(loss.item()):
+            # Check before backward: otherwise a NaN gradient contaminates the
+            # accumulation window even if the batch is logged as skipped below.
+            if not torch.isfinite(loss).all():
                 logger.warning(
-                    "NaN loss at step %s image_id=%s; skipping batch",
+                    "Non-finite loss at step %s image_id=%s; skipping before backward",
                     step,
                     image_id,
                 )
                 model.zero_grad()
                 optimizer.zero_grad()
                 continue
+            if args.fp16:
+                optimizer.backward(loss)
+            else:
+                loss.backward()
 
             tr_loss += loss.item()
 

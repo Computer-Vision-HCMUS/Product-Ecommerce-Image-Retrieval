@@ -4,10 +4,15 @@ The metadata file is streamed three times, so it is safe to use with the full
 M5Product JSON object. The default selection contains the 50 largest curated
 super-categories, with up to 200 products from each super-category.
 
-Within each super-category, products are split by modality completeness:
-    80% full modality (title, label, image, video, pv all present)
-    20% incomplete modality (naturally missing fields, or full samples with
-    1-2 modalities artificially masked when natural incomplete samples run out)
+Within each super-category, products are sampled from listings that natively
+contain every input modality, then assigned a deterministic availability view:
+    70% full modality (image, title, pv, video, audio)
+    20% missing 1--2 modalities (hidden deterministically)
+    10% image-only (title, pv, video and audio hidden)
+
+The original fields and downloaded media are retained in the manifest.  The
+effective fields, masks, seed and selection group are also written so later
+ablations compare identical source listings rather than different populations.
 
 Products are ranked with:
     Score = .4 * Completeness + .3 * TextQuality + .2 * MerchantScore
@@ -54,8 +59,12 @@ USER_AGENT = (
 )
 TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
 MERCHANT_KEYS = ("merchant", "seller", "shop", "store", "vendor")
-MODALITY_FIELDS = ("title", "label", "image_url", "video_url", "pv")
-MASKABLE_MODALITIES = ("title", "pv", "video_url")
+# ``label`` is evaluation metadata, not a model input. Audio is extracted from
+# a product's video after download and is tracked independently so it can be
+# hidden without hiding video. Image remains available in every view because
+# current SCALE preprocessing requires it to build region features.
+INPUT_MODALITIES = ("title", "image_url", "video_url", "audio", "pv")
+MASKABLE_MODALITIES = ("title", "pv", "video_url", "audio")
 
 
 @dataclass(frozen=True)
@@ -149,6 +158,9 @@ def modality_presence(record: ProductRecord) -> dict[str, bool]:
         "label": nonempty(record.label),
         "image_url": nonempty(record.image_url),
         "video_url": nonempty(record.video_url),
+        # This is eligibility for audio extraction, not proof that the media
+        # stream is decodable. save_audio_feature.py records the final audit.
+        "audio": nonempty(record.video_url),
         "pv": nonempty(record.pv),
     }
 
@@ -172,16 +184,25 @@ def mask_rng(product_id: str, seed: int) -> random.Random:
     return random.Random(int(digest[:16], 16))
 
 
-def choose_masked_modalities(record: ProductRecord, seed: int) -> tuple[str, ...]:
-    """Pick 1-2 maskable modalities to hide on an otherwise complete sample."""
-    present = [name for name in MASKABLE_MODALITIES if modality_presence(record)[name]]
-    if not present:
-        return ()
+def choose_partial_mask(record: ProductRecord, seed: int) -> tuple[str, ...]:
+    """Deterministically hide one (70%) or two (30%) of the five modalities."""
+    if not all(modality_presence(record)[name] for name in MASKABLE_MODALITIES):
+        raise ValueError("Partial-modality selection requires a full-modality record.")
     rng = mask_rng(record.product_id, seed)
-    mask_count = 1 if len(present) == 1 or rng.random() < 0.7 else 2
-    shuffled = present[:]
-    rng.shuffle(shuffled)
-    return tuple(sorted(shuffled[:mask_count]))
+    if rng.random() < 0.7:
+        return (rng.choice(MASKABLE_MODALITIES),)
+    # Audio depends on video in source media: hiding video must also hide audio.
+    # Other pairs remain independently controllable by the feature-generation step.
+    pairs = (("video_url", "audio"), ("title", "pv"), ("title", "audio"), ("pv", "audio"))
+    return tuple(sorted(rng.choice(pairs)))
+
+
+def effective_modality_presence(record: ProductRecord, masked_modalities: tuple[str, ...]) -> dict[str, bool]:
+    """Return model-input availability after applying the deterministic mask."""
+    present = modality_presence(record)
+    for modality in masked_modalities:
+        present[modality] = False
+    return present
 
 
 def apply_modality_masks(record: ProductRecord, masked_modalities: tuple[str, ...]) -> ProductRecord:
@@ -367,54 +388,36 @@ def _greedy_select(
 def select_products(
     candidates: Dict[str, list[ScoredRecord]],
     per_category: int,
-    full_modality_ratio: float = 0.8,
+    full_modality_ratio: float = 0.7,
+    partial_modality_ratio: float = 0.2,
+    single_modality_ratio: float = 0.1,
     seed: int = 42,
 ) -> tuple[list[tuple[ScoredRecord, float, float, SelectionMeta]], list[dict[str, object]]]:
-    """Select products per super-category with an 80/20 full/incomplete modality mix."""
-    if not 0 < full_modality_ratio < 1:
-        raise ValueError("full_modality_ratio must be in (0, 1).")
+    """Create controlled 70/20/10 modality cohorts from the same full-data pool."""
+    ratios = (full_modality_ratio, partial_modality_ratio, single_modality_ratio)
+    if any(ratio < 0 for ratio in ratios) or not abs(sum(ratios) - 1.0) < 1e-9:
+        raise ValueError("full, partial and single modality ratios must be non-negative and sum to 1.")
     full_quota = round(per_category * full_modality_ratio)
-    incomplete_quota = per_category - full_quota
+    partial_quota = round(per_category * partial_modality_ratio)
+    single_quota = per_category - full_quota - partial_quota
     selected: list[tuple[ScoredRecord, float, float, SelectionMeta]] = []
     summary_rows: list[dict[str, object]] = []
 
     for super_category in sorted(candidates):
         pool = [item for item in candidates[super_category] if is_selectable(item.record)]
         full_pool = [item for item in pool if is_full_modality(item.record)]
-        incomplete_pool = [item for item in pool if not is_full_modality(item.record)]
-
-        full_selected, full_remaining = _greedy_select(full_pool, full_quota)
-        selected_ids = {item.record.product_id for item, _, _ in full_selected}
-
-        incomplete_candidates = [
-            item for item in incomplete_pool if item.record.product_id not in selected_ids
-        ]
-        incomplete_selected, _ = _greedy_select(incomplete_candidates, incomplete_quota)
-        selected_ids.update(item.record.product_id for item, _, _ in incomplete_selected)
-
-        masked_selected: list[tuple[ScoredRecord, float, float, SelectionMeta]] = []
-        gap = incomplete_quota - len(incomplete_selected)
-        if gap > 0:
-            fill_pool = [
-                item for item in full_remaining if item.record.product_id not in selected_ids
-            ]
-            fill_selected, _ = _greedy_select(fill_pool, gap)
-            for item, score, div in fill_selected:
-                masked = choose_masked_modalities(item.record, seed)
-                masked_selected.append(
-                    (
-                        item,
-                        score,
-                        div,
-                        SelectionMeta(
-                            modality_complete=False,
-                            modality_source="masked",
-                            masked_modalities=masked,
-                            modality_present=modality_presence(item.record),
-                        ),
-                    )
-                )
-                selected_ids.add(item.record.product_id)
+        # Do not mix naturally incomplete listings into a controlled ablation.
+        # If enough full records exist, missingness is generated by hiding fields;
+        # this holds product quality and source modalities constant across cohorts.
+        cohort, _ = _greedy_select(full_pool, per_category)
+        if len(cohort) != per_category:
+            raise SystemExit(
+                f"{super_category!r} has only {len(cohort)} full-modality records; "
+                f"need {per_category}. Lower --per-super-category or choose another taxonomy."
+            )
+        full_selected = cohort[:full_quota]
+        partial_selected = cohort[full_quota : full_quota + partial_quota]
+        single_selected = cohort[full_quota + partial_quota :]
 
         for item, score, div in full_selected:
             selected.append(
@@ -426,11 +429,12 @@ def select_products(
                         modality_complete=True,
                         modality_source="natural_full",
                         masked_modalities=(),
-                        modality_present=modality_presence(item.record),
+                        modality_present=effective_modality_presence(item.record, ()),
                     ),
                 )
             )
-        for item, score, div in incomplete_selected:
+        for item, score, div in partial_selected:
+            masked = choose_partial_mask(item.record, seed)
             selected.append(
                 (
                     item,
@@ -438,24 +442,39 @@ def select_products(
                     div,
                     SelectionMeta(
                         modality_complete=False,
-                        modality_source="natural_incomplete",
-                        masked_modalities=missing_modalities(item.record),
-                        modality_present=modality_presence(item.record),
+                        modality_source="masked_missing_1_2",
+                        masked_modalities=masked,
+                        modality_present=effective_modality_presence(item.record, masked),
                     ),
                 )
             )
-        selected.extend(masked_selected)
+        for item, score, div in single_selected:
+            masked = MASKABLE_MODALITIES
+            selected.append(
+                (
+                    item,
+                    score,
+                    div,
+                    SelectionMeta(
+                        modality_complete=False,
+                        modality_source="masked_image_only",
+                        masked_modalities=masked,
+                        modality_present=effective_modality_presence(item.record, masked),
+                    ),
+                )
+            )
 
         summary_rows.append(
             {
                 "super_category": super_category,
                 "requested": per_category,
-                "selected": len(full_selected) + len(incomplete_selected) + len(masked_selected),
+                "selected": len(cohort),
                 "full_modality": len(full_selected),
-                "natural_incomplete": len(incomplete_selected),
-                "masked_incomplete": len(masked_selected),
+                "missing_1_2_modalities": len(partial_selected),
+                "image_only": len(single_selected),
                 "full_quota": full_quota,
-                "incomplete_quota": incomplete_quota,
+                "partial_quota": partial_quota,
+                "single_quota": single_quota,
             }
         )
     return selected, summary_rows
@@ -538,28 +557,36 @@ def download_product(
     args: argparse.Namespace,
     stop_event: threading.Event,
 ) -> Dict[str, object]:
-    record = apply_modality_masks(scored.record, selection.masked_modalities)
+    source_record = scored.record
+    record = apply_modality_masks(source_record, selection.masked_modalities)
     directory = folder_name(super_category)
     category_dir = dataset_dir / directory
     category_images, category_videos = category_dir / "images", category_dir / "videos"
     category_images.mkdir(parents=True, exist_ok=True)
     category_videos.mkdir(parents=True, exist_ok=True)
     image_path, image_status = download_url(
-        record.image_url, category_images / record.product_id, ".jpg",
+        source_record.image_url, category_images / source_record.product_id, ".jpg",
         args.timeout, args.retries, args.overwrite, stop_event, args.stop_on_network_error,
     )
     video_path, video_status = download_url(
-        record.video_url, category_videos / record.product_id, ".mp4",
+        source_record.video_url, category_videos / source_record.product_id, ".mp4",
         args.timeout, args.retries, args.overwrite, stop_event, args.stop_on_network_error,
     )
     return {
         "id": record.product_id,
+        # Effective fields are the inputs exposed to downstream preprocessing.
         "title": record.title,
         "label": record.label,
         "super_category": super_category,
         "pv": record.pv,
         "image_url": record.image_url,
         "video_url": record.video_url,
+        # Keep the untouched source so another modality ablation can be built
+        # from exactly the same products without downloading them again.
+        "source_title": source_record.title,
+        "source_pv": source_record.pv,
+        "source_image_url": source_record.image_url,
+        "source_video_url": source_record.video_url,
         "score": round(score, 6),
         "score_components": {
             "completeness": round(scored.completeness, 6),
@@ -571,6 +598,7 @@ def download_product(
         "modality_source": selection.modality_source,
         "masked_modalities": list(selection.masked_modalities),
         "modality_present": selection.modality_present,
+        "source_modality_present": modality_presence(source_record),
         "image_path": image_path,
         "video_path": video_path,
         "image_status": image_status,
@@ -591,8 +619,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--super-categories", type=int, default=50, help="Number of largest super-categories to include.")
     parser.add_argument("--per-super-category", "--per-category", dest="per_super_category", type=int, default=200,
                         help="Maximum selected products per super-category.")
-    parser.add_argument("--full-modality-ratio", type=float, default=0.8,
-                        help="Share of each super-category that must have all modalities present.")
+    parser.add_argument("--full-modality-ratio", type=float, default=0.70,
+                        help="Share exposed with image, title, pv, video and derived audio (default: 0.70).")
+    parser.add_argument("--partial-modality-ratio", type=float, default=0.20,
+                        help="Share with one or two non-image modalities hidden (default: 0.20).")
+    parser.add_argument("--single-modality-ratio", type=float, default=0.10,
+                        help="Share exposed as image-only; title, pv, video and audio are hidden (default: 0.10).")
     parser.add_argument("--selection-seed", type=int, default=42,
                         help="Seed for deterministic artificial modality masking.")
     parser.add_argument("--candidate-pool", type=int, default=1000, help="Best pre-diversification candidates retained per super-category.")
@@ -617,8 +649,9 @@ def main() -> int:
     args = parse_args()
     if args.super_categories <= 0 or args.per_super_category <= 0 or args.candidate_pool < args.per_super_category:
         raise SystemExit("--super-categories and --per-super-category must be positive; --candidate-pool must be at least --per-super-category.")
-    if not 0 < args.full_modality_ratio < 1:
-        raise SystemExit("--full-modality-ratio must be between 0 and 1.")
+    modality_ratios = (args.full_modality_ratio, args.partial_modality_ratio, args.single_modality_ratio)
+    if any(ratio < 0 for ratio in modality_ratios) or not abs(sum(modality_ratios) - 1.0) < 1e-9:
+        raise SystemExit("--full-modality-ratio, --partial-modality-ratio and --single-modality-ratio must be non-negative and sum to 1.")
     if args.max_products is not None and args.max_products <= 0:
         raise SystemExit("--max-products must be positive.")
     min_samples = args.min_category_samples or args.per_super_category
@@ -676,6 +709,8 @@ def main() -> int:
         candidates,
         args.per_super_category,
         full_modality_ratio=args.full_modality_ratio,
+        partial_modality_ratio=args.partial_modality_ratio,
+        single_modality_ratio=args.single_modality_ratio,
         seed=args.selection_seed,
     )
     for row in category_rows:
@@ -688,6 +723,35 @@ def main() -> int:
     )
     (output_dir / "modality_selection.json").write_text(
         json.dumps(modality_summary, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    (output_dir / "selection_protocol.json").write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "selection_seed": args.selection_seed,
+                "super_categories": args.super_categories,
+                "per_super_category": args.per_super_category,
+                "cohorts": {
+                    "natural_full": {
+                        "ratio": args.full_modality_ratio,
+                        "effective_modalities": ["image", "title", "pv", "video", "audio"],
+                    },
+                    "masked_missing_1_2": {
+                        "ratio": args.partial_modality_ratio,
+                        "effective_modalities": "image plus three or four of title/pv/video/audio",
+                        "mask_rule": "deterministic: 70% hide one, 30% hide two",
+                    },
+                    "masked_image_only": {
+                        "ratio": args.single_modality_ratio,
+                        "effective_modalities": ["image"],
+                    },
+                },
+                "comparison_note": "All cohorts are selected from native five-modality-eligible listings. Audio is extracted from the downloaded video and must be verified with audio_feature_manifest.json; source_* fields and downloaded media retain the unmasked source.",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
     )
     manifest_path = output_dir / "manifest.jsonl"
     existing_ids: set[str] = set()
@@ -714,25 +778,31 @@ def main() -> int:
     for item, score, _, selection in target_selected:
         export_record = apply_modality_masks(item.record, selection.masked_modalities)
         metadata[item.record.product_id] = {
+            # Effective values are consumed by the training/preprocessing path.
             "title": export_record.title,
             "label": export_record.label,
             "super_category": taxonomy[item.record.label],
             "url": export_record.image_url,
             "video": export_record.video_url,
             "pv": export_record.pv,
+            # Untouched source values make cohort and modality ablations reproducible.
+            "source_title": item.record.title,
+            "source_video": item.record.video_url,
+            "source_pv": item.record.pv,
             "score": score,
             "modality_complete": selection.modality_complete,
             "modality_source": selection.modality_source,
             "masked_modalities": list(selection.masked_modalities),
             "modality_present": selection.modality_present,
+            "source_modality_present": modality_presence(item.record),
         }
     (output_dir / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
     modality_counts = Counter(selection.modality_source for _, _, _, selection in target_selected)
     print(
         f"Selected {len(selected)} products across {len(selected_super_categories)} super-categories "
         f"(full={modality_counts.get('natural_full', 0)}, "
-        f"natural_incomplete={modality_counts.get('natural_incomplete', 0)}, "
-        f"masked={modality_counts.get('masked', 0)}). "
+        f"missing_1_2={modality_counts.get('masked_missing_1_2', 0)}, "
+        f"image_only={modality_counts.get('masked_image_only', 0)}). "
         f"Pass 3/3: {len(existing_ids)} existing, {len(pending)} pending, target {target_count}...",
         flush=True,
     )

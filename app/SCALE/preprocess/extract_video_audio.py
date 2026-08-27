@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -70,7 +71,7 @@ def build_resnet(device):
 
 
 def extract_video_resnet(
-    video_path: Path, out_path: Path, model, device,
+    video_path: Path, out_path: Path, model, device, frame_batch_size: int,
 ) -> bool:
     import torch
     from torchvision.transforms.functional import to_tensor, resize
@@ -78,12 +79,15 @@ def extract_video_resnet(
     frames = extract_video_frames(video_path)
     if not frames:
         return False
+    tensors = []
+    for frame in frames[:VIDEO_LEN]:
+        rgb = frame[:, :, ::-1].copy()
+        tensors.append(resize(to_tensor(rgb), [224, 224]))
     feats = []
     with torch.no_grad():
-        for frame in frames[:VIDEO_LEN]:
-            rgb = frame[:, :, ::-1].copy()
-            tensor = resize(to_tensor(rgb), [224, 224]).to(device)
-            feats.append(model(tensor.unsqueeze(0)))
+        for start in range(0, len(tensors), frame_batch_size):
+            batch = torch.stack(tensors[start : start + frame_batch_size]).to(device)
+            feats.append(model(batch))
     stacked = torch.cat(feats, dim=0)
     if stacked.shape[0] < VIDEO_LEN:
         pad = torch.zeros(VIDEO_LEN - stacked.shape[0], stacked.shape[1], device=device)
@@ -102,8 +106,15 @@ def extract_mp3(video_path: Path, mp3_path: Path) -> bool:
     if mp3_path.is_file():
         return True
     mp3_path.parent.mkdir(parents=True, exist_ok=True)
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        try:
+            import imageio_ffmpeg
+            ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        except (ImportError, RuntimeError):
+            return False
     cmd = [
-        "ffmpeg", "-y", "-i", str(video_path),
+        ffmpeg, "-y", "-i", str(video_path),
         "-vn", "-acodec", "libmp3lame", "-q:a", "4", str(mp3_path),
     ]
     try:
@@ -124,8 +135,12 @@ def main() -> None:
     parser.add_argument("--reextract-zero", action="store_true",
                         help="Re-extract when .npy exists but is all zeros and video_path is present")
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+    parser.add_argument("--frame-batch-size", type=int, default=12,
+                        help="Frames passed to ResNet together; 12 processes one video's frames in one GPU batch.")
     parser.add_argument("--limit", type=int, default=0)
     args = parser.parse_args()
+    if args.frame_batch_size <= 0:
+        raise SystemExit("--frame-batch-size must be positive.")
 
     import torch
 
@@ -167,7 +182,7 @@ def main() -> None:
         ok = False
         if video_path is not None:
             try:
-                ok = extract_video_resnet(video_path, out_video, model, device)
+                ok = extract_video_resnet(video_path, out_video, model, device, args.frame_batch_size)
                 if ok and args.audio_output_dir:
                     extract_mp3(video_path, args.audio_output_dir / f"{product_id}.mp3")
             except Exception as exc:

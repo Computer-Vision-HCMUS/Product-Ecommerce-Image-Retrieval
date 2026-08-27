@@ -71,12 +71,27 @@ def main() -> None:
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    ids = list(read_json(args.id_label).keys())
+    id_label = read_json(args.id_label)
+    ids = list(id_label.keys())
+    audit: dict[str, str] = {}
 
     for item_id in tqdm(ids, desc="audio features"):
+        # Raw video is retained for later ablations.  Do not allow it to leak
+        # into an audio-hidden cohort in this particular run.
+        if not id_label[item_id].get("audio_available", True):
+            if args.zero_fill_missing:
+                write_zero_audio(item_id, args.output_dir)
+                audit[item_id] = "intentionally_hidden"
+            else:
+                audit[item_id] = "intentionally_hidden_no_zero_fill"
+            continue
         ok = extract_audio_feature(item_id, args.audio_dir, args.output_dir)
+        audit[item_id] = "extracted" if ok else "unavailable_or_invalid"
         if not ok and args.zero_fill_missing:
             write_zero_audio(item_id, args.output_dir)
+    (args.output_dir / "audio_feature_manifest.json").write_text(
+        json.dumps(audit, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
 if __name__ == "__main__":

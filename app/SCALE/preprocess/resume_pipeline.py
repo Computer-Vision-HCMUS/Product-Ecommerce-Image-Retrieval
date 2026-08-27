@@ -133,6 +133,7 @@ def run_paper_retrieval_eval(
             str(scale / "evaluate_unit_v2.py"),
             "--retrieval_result_dir", str(retrieval_dir),
             "--GT_file", str(work / "id_label.json"),
+            "--gallery-ids", str(gallery_dir / "id.npy"),
             "--output_metric_dir", str(metric_dir),
             *type_flags,
         ],

@@ -87,7 +87,9 @@ Script: `app/datasets/download-dataset-tools.py`
   --resume
 ```
 
-**Output:** `metadata.json`, `manifest.jsonl`, anh/video da tai.
+Mặc định mỗi siêu danh mục được chia có kiểm soát: **70% đầy đủ** (image/title/PV/video/audio), **20% bị ẩn 1--2 modality** và **10% image-only**. Audio được tách từ video và phải được đối chiếu bằng `audio_feature_manifest.json`. Mọi cohort đều bắt đầu từ listing đủ nguồn modality; trường gốc và media được giữ để tái lập ablation. Không đổi seed hoặc các tỷ lệ nếu muốn so sánh trực tiếp giữa các lần chạy.
+
+**Output:** `metadata.json`, `manifest.jsonl`, `selection_protocol.json`, `modality_selection.json`, ảnh/video đã tải.
 
 Test nhanh:
 
@@ -101,7 +103,7 @@ Test nhanh:
 
 Script: `app/preprocess/prepare_subset.py`
 
-Split theo **label** (cung label = positive khi eval). Khong phai GT chinh thuc M5Product benchmark, nhung dung duoc voi `evaluate_unit_v2` tren subset.
+Split theo **label**: 70\% train, 10\% validation và test pool 20\% được tách thành 10\% query + 10\% gallery. Label có dưới 4 item bị loại vì không thể có train/val/query/gallery hợp lệ. Positive khi eval là cùng label **trong gallery**; đây không phải GT chính thức M5Product.
 
 ```powershell
 & $py app/preprocess/prepare_subset.py `
@@ -110,7 +112,7 @@ Split theo **label** (cung label = positive khi eval). Khong phai GT chinh thuc 
   --seed 42
 ```
 
-**Output:** `train.json`, `val.json`, `test.json`, `gallery.json`, `records.json`.
+**Output:** `train.json`, `val.json`, `test.json`, `gallery.json`, `records.json`, `split_protocol.json`.
 
 ---
 

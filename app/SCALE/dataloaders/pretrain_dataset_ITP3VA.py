@@ -226,7 +226,9 @@ class Pretrain_DataSet_Train(object):
 
             # image
             batch_size = input_ids.shape[0]
-            g_image_feat = np.sum(image_feat, axis=1) / np.sum(image_mask, axis=1, keepdims=True)
+            g_image_feat = np.sum(image_feat, axis=1) / np.maximum(
+                np.sum(image_mask, axis=1, keepdims=True), 1
+            )
             image_feat = np.concatenate([np.expand_dims(g_image_feat, axis=1), image_feat], axis=1)
             image_feat = np.array(image_feat, dtype=np.float32)
 
@@ -238,17 +240,23 @@ class Pretrain_DataSet_Train(object):
             image_mask = np.concatenate([g_image_mask, image_mask], axis=1)
 
             # video
-            g_video_feat=np.sum(video_feat,axis=1)/np.sum(video_mask,axis=1,keepdims=True)
+            video_present = (np.sum(video_mask, axis=1, keepdims=True) > 0).astype(np.int64)
+            g_video_feat=np.sum(video_feat,axis=1)/np.maximum(
+                np.sum(video_mask,axis=1,keepdims=True), 1
+            )
             video_feat=np.concatenate([np.expand_dims(g_video_feat,axis=1),video_feat],axis=1)
             video_feat=np.array(video_feat,dtype=np.float32)
-            g_video_mask = np.repeat(np.array([[1]]), batch_size, axis=0)
+            g_video_mask = video_present
             video_mask = np.concatenate([g_video_mask, video_mask], axis=1)
 
             # audio
-            g_audio_feat=np.sum(audio_feat,axis=1)/np.sum(audio_mask,axis=1,keepdims=True)
+            audio_present = (np.sum(audio_mask, axis=1, keepdims=True) > 0).astype(np.int64)
+            g_audio_feat=np.sum(audio_feat,axis=1)/np.maximum(
+                np.sum(audio_mask,axis=1,keepdims=True), 1
+            )
             audio_feat=np.concatenate([np.expand_dims(g_audio_feat,axis=1),audio_feat],axis=1)
             audio_feat=np.array(audio_feat,dtype=np.float32)
-            g_audio_mask = np.repeat(np.array([[1]]), batch_size, axis=0)
+            g_audio_mask = audio_present
             audio_mask = np.concatenate([g_audio_mask, audio_mask], axis=1)
 
 
@@ -370,23 +378,29 @@ class BertPreprocessBatch(object):
 
         # video
         video_feature=np.zeros((self.video_len,1024),dtype=np.float32)
-        num_frames=self.video_len
+        num_frames=0
         try:
             video_feature_file="{}/{}.npy".format(self.video_feature_dir,image_id)
             video_feature_ = np.load(video_feature_file)
             # print("video_feature_: ",video_feature_.shape)
-            num_frames=min(video_feature_.shape[0],self.video_len)
-            video_feature[:num_frames]=video_feature_[:num_frames]
+            available_frames=min(video_feature_.shape[0],self.video_len)
+            video_feature[:available_frames]=video_feature_[:available_frames]
+            # Zero-filled features represent unavailable/hidden video and must
+            # not participate in attention or masked-feature reconstruction.
+            if np.isfinite(video_feature_[:available_frames]).all() and np.any(video_feature_[:available_frames]):
+                num_frames=available_frames
         except:
             missing_id_file.write("{}\n".format(image_id))
             print("no video feature")
 
         # audio
-        num_audio=80
+        num_audio=0
         audio_feature=np.zeros((num_audio,751),dtype=np.float32)
         try:
             audio_feature_file="{}/{}.npy".format(self.audio_feature_dir,image_id)
             audio_feature=np.load(audio_feature_file)
+            if np.isfinite(audio_feature).all() and np.any(audio_feature):
+                num_audio=audio_feature.shape[0]
         except:
             missing_id_file.write("{}\n".format(image_id))
             print("read audio feature error")
@@ -416,7 +430,8 @@ class BertPreprocessBatch(object):
                                                         self.region_len,
                                                         self.video_len,
                                                         self.pv_seq_len,
-                                                        num_audio) # TODO
+                                                        num_audio,
+                                                        audio_feature.shape[0]) # TODO
         
         cur_tensors = (
             cur_features.input_ids,
@@ -472,6 +487,7 @@ class BertPreprocessBatch(object):
                                     max_region_length,
                                     max_frame_length,
                                     max_pv_seq_length,
+                                    num_audio,
                                     max_audio_length):
         image_feat = example.image_feat
         caption = example.caption
@@ -488,7 +504,8 @@ class BertPreprocessBatch(object):
         # audio
         audio_feature=example.audio_feature
         audio_target=copy.deepcopy(audio_feature)
-        num_audio=example.num_audio
+        # ``num_audio`` is the number of valid audio rows for this item;
+        # ``max_audio_length`` remains the fixed tensor length (80 mel bins).
 
         caption = self.tokenizer.tokenize(caption)
         self._truncate_seq_pair(caption, max_seq_length - 2)
