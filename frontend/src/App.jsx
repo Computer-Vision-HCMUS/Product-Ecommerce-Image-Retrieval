@@ -1,117 +1,60 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
-const MODALITIES = [
-  { key: "image", label: "Image", type: "file", accept: "image/*" },
-  { key: "title", label: "Title / Caption text", type: "text" },
-  { key: "caption", label: "Description", type: "text" },
-  { key: "pv", label: "Table (PV attributes)", type: "textarea" },
-  { key: "video", label: "Video", type: "file", accept: "video/*" },
-  { key: "audio", label: "Audio", type: "file", accept: "audio/*" },
+const FILE_MODALITIES = [
+  { key: "image", label: "Image", hint: "JPG, PNG, WEBP", accept: "image/*", glyph: "IMG" },
+  { key: "video", label: "Video", hint: "MP4, MOV, WEBM", accept: "video/*", glyph: "VID" },
+  { key: "audio", label: "Audio", hint: "MP3, WAV, M4A", accept: "audio/*", glyph: "AUD" },
 ];
+const fileUrl = (path) => `/api/file?path=${encodeURIComponent(path)}`;
+const formatSize = (bytes) => { if (!bytes) return ""; const units = ["B", "KB", "MB", "GB"]; const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), 3); return `${(bytes / 1024 ** i).toFixed(i ? 1 : 0)} ${units[i]}`; };
+
+function Button({ children, variant = "primary", className = "", ...props }) { return <button className={`button button-${variant} ${className}`} {...props}>{children}</button>; }
+function Badge({ children, tone = "neutral" }) { return <span className={`status-badge status-${tone}`}>{children}</span>; }
+function EmptyState({ title, description }) { return <div className="empty-state"><div className="empty-mark">+</div><h3>{title}</h3><p>{description}</p></div>; }
+function MediaPreview({ kind, item }) { if (kind === "image") return <img className="media-preview" src={item.preview} alt="Selected query" />; if (kind === "video") return <video className="media-preview" src={item.preview} controls preload="metadata" />; return <audio className="audio-preview" src={item.preview} controls preload="metadata" />; }
+
+function MediaCard({ item, selected, fileVersion, onFile, onRemove, disabled }) {
+  return <article className={`media-card ${selected ? "has-file" : ""} ${disabled ? "is-disabled" : ""}`}>
+    <div className="media-card-heading"><span className="media-glyph">{item.glyph}</span><div><h3>{item.label}</h3><p>{item.hint}</p></div></div>
+    {selected ? <><MediaPreview kind={item.key} item={selected} /><p className="file-name" title={selected.file.name}>{selected.file.name}</p><p className="file-size">{formatSize(selected.file.size)}</p><div className="media-actions"><label className="button button-secondary">Replace<input key={`${item.key}-${fileVersion}`} type="file" accept={item.accept} onChange={(e) => onFile(item.key, e.target.files?.[0])} disabled={disabled} /></label><Button type="button" variant="danger-ghost" onClick={() => onRemove(item.key)} disabled={disabled}>Remove</Button></div></> : <label className="upload-zone"><span>Upload {item.label.toLowerCase()}</span><small>Click to browse</small><input key={`${item.key}-${fileVersion}`} type="file" accept={item.accept} onChange={(e) => onFile(item.key, e.target.files?.[0])} disabled={disabled} /></label>}
+  </article>;
+}
+
+function ProductDetail({ productId, onBack }) {
+  const [product, setProduct] = useState(null); const [error, setError] = useState("");
+  useEffect(() => { setProduct(null); setError(""); fetch(`/api/products/${encodeURIComponent(productId)}`).then(async (r) => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || "Product not found"); return r.json(); }).then(setProduct).catch((e) => setError(e.message)); }, [productId]);
+  if (error) return <main className="app-shell"><div className="page"><Button variant="ghost" onClick={onBack}>Back to search</Button><div className="alert alert-danger" role="alert"><strong>Unable to load product.</strong><span>{error}</span></div></div></main>;
+  if (!product) return <main className="app-shell"><div className="page"><Button variant="ghost" onClick={onBack}>Back to search</Button><section className="detail-skeleton" aria-label="Loading product details"><i /><i /><i /></section></div></main>;
+  const { modalities } = product; const unavailable = (key) => product.masked_modalities.includes(key);
+  const asset = (type, number, name, content) => <article className={`detail-card ${type === "image" ? "image-detail" : ""}`}><div className="detail-card-title"><span>{number}</span><h2>{name}</h2></div>{content}</article>;
+  return <main className="app-shell"><div className="page detail-page"><Button variant="ghost" onClick={onBack}>Back to search</Button><header className="detail-header"><div><p className="eyebrow">PRODUCT DETAIL</p><h1>{product.title || product.id}</h1><p className="detail-subtitle">{product.super_category} <span>/</span> {product.label}</p></div><Badge>ID {product.id}</Badge></header><section className="detail-grid">
+    {asset("image", "01", "Image", modalities.image ? <img src={fileUrl(modalities.image)} alt={product.title} /> : <EmptyState title="No image" description="This product has no image asset." />)}
+    {asset("text", "02", "Text", <p className="detail-text">{product.title || "No text available"}</p>)}
+    {asset("pv", "03", "PV attributes", <p className="detail-pv">{modalities.pv ? product.pv : "No PV attributes available"}</p>)}
+    {asset("video", "04", "Video", modalities.video ? <video src={fileUrl(modalities.video)} controls preload="metadata" /> : <EmptyState title="No video" description={unavailable("video_url") ? "Hidden deliberately for this cohort." : "This product has no video asset."} />)}
+    {asset("audio", "05", "Audio", modalities.audio ? <audio src={fileUrl(modalities.audio)} controls preload="metadata" /> : <EmptyState title="No audio" description={unavailable("audio") ? "Hidden deliberately for this cohort." : "This product has no audio asset."} />)}
+  </section></div></main>;
+}
 
 export default function App() {
-  const [topK, setTopK] = useState(10);
-  const [fields, setFields] = useState({ title: "", caption: "", pv: "" });
-  const [files, setFiles] = useState({});
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [results, setResults] = useState(null);
-
-  const onFile = (key, file) => setFiles((prev) => ({ ...prev, [key]: file }));
-
-  const onSubmit = async (event) => {
-    event.preventDefault();
-    setLoading(true);
-    setError("");
-    setResults(null);
-    const form = new FormData();
-    form.append("top_k", String(topK));
-    form.append("title", fields.title);
-    form.append("caption", fields.caption);
-    form.append("pv", fields.pv);
-    if (files.image) form.append("image", files.image);
-    if (files.video) form.append("video", files.video);
-    if (files.audio) form.append("audio", files.audio);
-    try {
-      const response = await fetch("/api/search", { method: "POST", body: form });
-      if (!response.ok) {
-        const detail = await response.json().catch(() => ({}));
-        throw new Error(detail.detail || `HTTP ${response.status}`);
-      }
-      setResults(await response.json());
-    } catch (err) {
-      setError(err.message || "Search failed");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="page">
-      <header>
-        <h1>SCALE Product Retrieval</h1>
-        <p>Query with up to 5 modalities. Missing modalities use zero imputation at fusion time.</p>
-      </header>
-
-      <form className="panel" onSubmit={onSubmit}>
-        <label>
-          Top K
-          <input type="number" min="1" max="50" value={topK} onChange={(e) => setTopK(Number(e.target.value))} />
-        </label>
-
-        {MODALITIES.map((item) =>
-          item.type === "file" ? (
-            <label key={item.key}>
-              {item.label}
-              <input type="file" accept={item.accept} onChange={(e) => onFile(item.key, e.target.files?.[0] || null)} />
-            </label>
-          ) : (
-            <label key={item.key}>
-              {item.label}
-              {item.type === "textarea" ? (
-                <textarea
-                  rows="4"
-                  value={fields[item.key]}
-                  onChange={(e) => setFields((prev) => ({ ...prev, [item.key]: e.target.value }))}
-                />
-              ) : (
-                <input
-                  type="text"
-                  value={fields[item.key]}
-                  onChange={(e) => setFields((prev) => ({ ...prev, [item.key]: e.target.value }))}
-                />
-              )}
-            </label>
-          )
-        )}
-
-        <button type="submit" disabled={loading}>{loading ? "Searching..." : "Search"}</button>
-      </form>
-
-      {error && <div className="error">{error}</div>}
-
-      {results && (
-        <section className="panel">
-          <h2>Results</h2>
-          <p className="meta">Query modalities: {JSON.stringify(results.query_modalities)}</p>
-          <div className="grid">
-            {results.top_k.map((item) => (
-              <article key={item.id} className="card">
-                {item.image_path ? (
-                  <img src={`/api/file?path=${encodeURIComponent(item.image_path)}`} alt={item.title} onError={(e) => { e.currentTarget.style.display = "none"; }} />
-                ) : (
-                  <div className="placeholder">No image</div>
-                )}
-                <div className="card-body">
-                  <strong>{item.title || item.id}</strong>
-                  <span>{item.label}</span>
-                  <span>score: {item.score.toFixed(4)}</span>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
-    </div>
-  );
+  const [topK, setTopK] = useState(10), [catalogId, setCatalogId] = useState(""), [fields, setFields] = useState({ text: "", pv: "" }), [files, setFiles] = useState({}), [fileVersions, setFileVersions] = useState({}), [loading, setLoading] = useState(false), [error, setError] = useState(""), [results, setResults] = useState(null), [darkMode, setDarkMode] = useState(() => localStorage.getItem("scale-theme") === "dark"), [productId, setProductId] = useState(() => window.location.pathname.match(/^\/product\/([^/]+)$/)?.[1] || null);
+  const filesRef = useRef(files); const idMode = Boolean(catalogId.trim()); const hasQuery = idMode || Boolean(fields.text.trim() || fields.pv.trim() || Object.keys(files).length);
+  useEffect(() => { document.documentElement.dataset.theme = darkMode ? "dark" : "light"; localStorage.setItem("scale-theme", darkMode ? "dark" : "light"); }, [darkMode]);
+  useEffect(() => { filesRef.current = files; }, [files]); useEffect(() => () => Object.values(filesRef.current).forEach((x) => URL.revokeObjectURL(x.preview)), []);
+  useEffect(() => { const handler = () => setProductId(window.location.pathname.match(/^\/product\/([^/]+)$/)?.[1] || null); window.addEventListener("popstate", handler); return () => window.removeEventListener("popstate", handler); }, []);
+  const openDetail = (id) => { window.history.pushState({}, "", `/product/${id}`); setProductId(id); }, closeDetail = () => { window.history.pushState({}, "", "/"); setProductId(null); };
+  const onFile = (key, file) => { if (!file) return; const preview = URL.createObjectURL(file); setFiles((old) => { if (old[key]?.preview) URL.revokeObjectURL(old[key].preview); return { ...old, [key]: { file, preview } }; }); };
+  const removeFile = (key) => { setFiles((old) => { if (old[key]?.preview) URL.revokeObjectURL(old[key].preview); const next = { ...old }; delete next[key]; return next; }); setFileVersions((old) => ({ ...old, [key]: (old[key] || 0) + 1 })); };
+  const onSubmit = async (event) => { event.preventDefault(); if (!hasQuery) return; setLoading(true); setError(""); setResults(null); const form = new FormData(); form.append("top_k", String(topK)); if (idMode) form.append("product_id", catalogId.trim()); else { form.append("title", fields.text); form.append("caption", ""); form.append("pv", fields.pv); FILE_MODALITIES.forEach(({ key }) => { if (files[key]?.file) form.append(key, files[key].file); }); } try { const r = await fetch(idMode ? "/api/search/by-id" : "/api/search", { method: "POST", body: form }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || "Search could not be completed."); setResults(await r.json()); } catch (e) { setError(e.message || "Search failed. Please try again."); } finally { setLoading(false); } };
+  if (productId) return <ProductDetail productId={productId} onBack={closeDetail} />;
+  return <main className="app-shell"><div className="page"><header className="topbar"><div className="brand"><span className="brand-mark">S</span><span>SCALE <small>Retrieval Studio</small></span></div><button className="theme-toggle" type="button" aria-label="Toggle color theme" onClick={() => setDarkMode((x) => !x)}>{darkMode ? "Light" : "Dark"}</button></header><header className="page-header"><div><p className="eyebrow">MULTIMODAL PRODUCT SEARCH</p><h1>Find the right product, faster.</h1><p>Search the catalog with text, PV attributes, image, video, and audio.</p></div><Badge tone="info">5 modalities</Badge></header>
+    <form className="search-panel" onSubmit={onSubmit}><div className="panel-heading"><div><h2>Search query</h2><p>Use a catalog ID for a deterministic test, or combine available modalities.</p></div><label className="top-k-control"><span>Results</span><select value={topK} onChange={(e) => setTopK(Number(e.target.value))}>{[5,10,20,50].map((x) => <option value={x} key={x}>Top {x}</option>)}</select></label></div>
+      <section className="id-test-row"><div><label className="field"><span>Catalog ID <em>Optional quick test</em></span><div className="id-input-wrap"><input type="text" inputMode="numeric" placeholder="Example: 624257086318" value={catalogId} onChange={(e) => setCatalogId(e.target.value)} />{catalogId && <Button type="button" variant="ghost" onClick={() => setCatalogId("")}>Clear</Button>}</div></label></div><p>Uses saved TPIVA features plus title/PV lexical evidence; never product labels.</p></section>
+      <fieldset className={`query-fields ${idMode ? "query-fields-muted" : ""}`} disabled={idMode}><legend>Query inputs</legend><label className="field"><span>Text</span><input type="text" placeholder="Describe the product or paste a catalog title" value={fields.text} onChange={(e) => setFields((x) => ({ ...x, text: e.target.value }))} /></label><label className="field"><span>PV attributes</span><textarea rows="3" placeholder="Example: color#:#black#;#material#:#leather" value={fields.pv} onChange={(e) => setFields((x) => ({ ...x, pv: e.target.value }))} /></label></fieldset>
+      <section className={`media-section ${idMode ? "query-fields-muted" : ""}`}><div className="section-label"><h2>Media</h2><p>Optional query inputs</p></div><div className="media-grid">{FILE_MODALITIES.map((item) => <MediaCard key={item.key} item={item} selected={files[item.key]} fileVersion={fileVersions[item.key] || 0} onFile={onFile} onRemove={removeFile} disabled={idMode} />)}</div></section><div className="form-footer"><p>{idMode ? "Catalog-ID mode is active." : "Add at least one query input to search."}</p><Button type="submit" disabled={loading || !hasQuery}>{loading ? "Searching catalog..." : "Search products"}</Button></div>
+    </form>
+    {error && <div className="alert alert-danger" role="alert"><strong>Search failed.</strong><span>{error}</span></div>}
+    {loading && <section className="results-panel loading-results" aria-label="Searching catalog"><div className="results-heading"><div><h2>Searching the catalog</h2><p>Ranking products across the available modalities.</p></div></div><div className="skeleton-grid">{Array.from({ length: 5 }, (_, i) => <i key={i} />)}</div></section>}
+    {results && !loading && <section className="results-panel"><div className="results-heading"><div><h2>Results</h2><p>{results.top_k.length} products returned</p></div><div className="modality-chips">{Object.entries(results.query_modalities).filter(([, on]) => on).map(([name]) => <Badge key={name} tone="info">{name}</Badge>)}</div></div>{results.top_k.length ? <div className="result-grid">{results.top_k.map((item, index) => <article key={item.id} className="result-card clickable" role="button" tabIndex="0" onClick={() => openDetail(item.id)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") openDetail(item.id); }}><div className="rank">{String(index + 1).padStart(2, "0")}</div>{item.image_path ? <img src={fileUrl(item.image_path)} alt={item.title || item.id} onError={(e) => { e.currentTarget.style.display = "none"; }} /> : <div className="placeholder">No image</div>}<div className="result-body"><strong>{item.title || item.id}</strong><span className="result-label">{item.label || "Unlabelled"}</span><div className="score"><span>Ranking score</span><b>{item.score.toFixed(4)}</b></div></div></article>)}</div> : <EmptyState title="No products found" description="Try another ID or broaden the information in your query." />}</section>}
+  </div></main>;
 }

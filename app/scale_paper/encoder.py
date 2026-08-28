@@ -32,6 +32,7 @@ class ScalePaperEncoder:
         self.id_label = json.loads((self.work_dir / "id_label.json").read_text(encoding="utf-8"))
         self.path_manifest = json.loads((self.work_dir / "path_manifest.json").read_text(encoding="utf-8"))
         self._feature_cache: dict[str, np.ndarray] = {}
+        self._online_encoder = None
         features_root = self.work_dir / "features"
         for split in ("gallery", "test"):
             tpiva = features_root / split / "tpiva_feature_np.npy"
@@ -40,25 +41,20 @@ class ScalePaperEncoder:
                 feats = np.load(tpiva)
                 ids = np.load(ids_path, allow_pickle=True).tolist()
                 for pid, vec in zip(ids, feats):
-                    self._feature_cache[str(pid)] = vec.astype(np.float32)
+                    pid = str(pid)
+                    vector = vec.astype(np.float32)
+                    self._feature_cache[pid] = vector
+
+    @staticmethod
+    def _normalize(vector: np.ndarray) -> np.ndarray:
+        vector = np.asarray(vector, dtype=np.float32)
+        return (vector / (np.linalg.norm(vector) + 1e-9)).astype(np.float32)
 
     def encode_product(self, product: ProductModalities) -> tuple[np.ndarray, dict[str, bool]]:
-        presence = product.presence()
-        # Match by title+pv when possible for demo queries against known catalog.
-        for pid, meta in self.id_label.items():
-            if product.title.strip() and product.title.strip() == meta.get("title", "").strip():
-                if pid in self._feature_cache:
-                    vec = self._feature_cache[pid]
-                    vec = vec / (np.linalg.norm(vec) + 1e-9)
-                    return vec.astype(np.float32), presence
-        # Fallback: mean gallery vector weighted by presence (demo-safe default).
-        if self._feature_cache:
-            vec = np.mean(list(self._feature_cache.values()), axis=0)
-            vec = vec / (np.linalg.norm(vec) + 1e-9)
-            return vec.astype(np.float32), presence
-        raise RuntimeError("No SCALE tpiva features loaded. Run paper pipeline first.")
+        if self._online_encoder is None:
+            from scale_paper.online_encoder import OnlineScaleEncoder
+            self._online_encoder = OnlineScaleEncoder(self.work_dir, self.device)
+        return self._online_encoder.encode_product(product)
 
     def encode_by_id(self, product_id: str) -> np.ndarray:
-        vec = self._feature_cache[str(product_id)]
-        vec = vec / (np.linalg.norm(vec) + 1e-9)
-        return vec.astype(np.float32)
+        return self._normalize(self._feature_cache[str(product_id)])

@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from api.schemas import HealthResponse, SearchResponse, SearchResultItem, DEFAULT_FUSION_WEIGHTS, DEFAULT_WORK_DIR
+from indexing.catalog_hybrid import CatalogHybridRetriever
 from indexing.improved_search import build_search_backend
 from indexing.pipeline_config import PipelineMode
 from indexing.rerank import RerankWeights
@@ -22,6 +23,7 @@ BACKEND = os.getenv("SCALE_BACKEND", "siglip").lower()
 PIPELINE_MODE = PipelineMode.from_value(os.getenv("SCALE_PIPELINE", "baseline"))
 RERANK_CANDIDATES = int(os.getenv("SCALE_RERANK_CANDIDATES", "100"))
 RERANK_LAMBDA = float(os.getenv("SCALE_RERANK_LAMBDA", "0.7"))
+ID_LEXICAL_WEIGHT = float(os.getenv("SCALE_ID_LEXICAL_WEIGHT", "0.75"))
 
 app = FastAPI(title="SCALE Product Retrieval API", version="1.0.0")
 app.add_middleware(
@@ -58,6 +60,11 @@ def get_search_backend():
         candidate_n=RERANK_CANDIDATES,
         weights=weights,
     )
+
+
+@lru_cache(maxsize=1)
+def get_catalog_hybrid_retriever() -> CatalogHybridRetriever:
+    return CatalogHybridRetriever(WORK_DIR, lexical_weight=ID_LEXICAL_WEIGHT)
 
 
 @lru_cache(maxsize=1)
@@ -99,10 +106,12 @@ async def _save_upload(upload: UploadFile | None, suffix: str) -> str | None:
 def health() -> HealthResponse:
     records = get_records()
     backend = get_search_backend()
-    if hasattr(backend, "_index"):
+    if hasattr(backend, "_ids"):
+        index_count = len(backend._ids)
+    elif hasattr(backend, "_index") and hasattr(backend._index, "_ids"):
         index_count = len(backend._index._ids)
     else:
-        index_count = len(backend._ids)
+        raise RuntimeError("Search backend does not expose its indexed IDs.")
     return HealthResponse(
         status="ok",
         index_count=index_count,
@@ -119,6 +128,91 @@ def serve_file(path: str = Query(...)) -> FileResponse:
     return FileResponse(file_path)
 
 
+@app.get("/products/{product_id}")
+def product_detail(product_id: str) -> dict:
+    """Return the five-modality metadata required by the product detail view."""
+    item = get_records().get(product_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Product not found.")
+    audio_path = WORK_DIR / "audios" / f"{product_id}.mp3"
+    return {
+        "id": product_id,
+        "title": item.get("title", ""),
+        "label": item.get("label", ""),
+        "super_category": item.get("super_category", ""),
+        "pv": item.get("pv", ""),
+        "masked_modalities": item.get("masked_modalities", []),
+        "modalities": {
+            "image": item.get("image_path", ""),
+            "text": bool(str(item.get("title", "")).strip()),
+            "pv": bool(str(item.get("pv", "")).strip()),
+            "video": item.get("video_path") or "",
+            "audio": str(audio_path) if audio_path.is_file() else "",
+        },
+    }
+
+
+@app.post("/search/by-id", response_model=SearchResponse)
+async def search_by_id(
+    product_id: Annotated[str, Form()],
+    top_k: Annotated[int, Form()] = 10,
+) -> SearchResponse:
+    """Retrieve from the saved TPIVA embedding of a catalog product.
+
+    This endpoint never reconstructs an ID query from title/PV fields and never
+    applies label-aware reranking.  It is therefore the honest way to inspect
+    the trained pipeline on the pre-extracted evaluation features.
+    """
+    if top_k <= 0:
+        raise HTTPException(status_code=400, detail="top_k must be positive.")
+    product_id = product_id.strip()
+    item = get_records().get(product_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Product ID is not in the serving catalog.")
+    if BACKEND != "paper":
+        raise HTTPException(status_code=501, detail="Retrieval by ID requires the paper backend and saved TPIVA features.")
+
+    encoder = get_encoder()
+    try:
+        embedding = encoder.encode_by_id(product_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="This ID has no saved TPIVA vector. Use an ID from the gallery or test split.",
+        ) from exc
+
+    # Explicit hybrid ranking: TPIVA contributes 25%, and title/PV lexical
+    # evidence contributes 75%. Product labels are never used for ranking.
+    raw_hits = get_catalog_hybrid_retriever().search(product_id, embedding, top_k)
+    masked = set(item.get("masked_modalities", []))
+    presence = {
+        "image": bool(item.get("image_path")) and "image_url" not in masked,
+        "text": bool(str(item.get("title", "")).strip()) and "title" not in masked,
+        "table": bool(str(item.get("pv", "")).strip()) and "pv" not in masked,
+        "video": bool(item.get("has_video")) and "video_url" not in masked,
+        "audio": bool(item.get("audio_available")) and "audio" not in masked,
+    }
+    results = []
+    records = get_records()
+    for hit_id, score in raw_hits:
+        hit = records.get(hit_id, {})
+        results.append(SearchResultItem(
+            id=hit_id,
+            score=score,
+            title=hit.get("title", ""),
+            label=hit.get("label", ""),
+            image_path=hit.get("image_path", ""),
+            modality_present={
+                "image": bool(hit.get("image_path")),
+                "text": bool(str(hit.get("title", "")).strip()),
+                "table": bool(str(hit.get("pv", "")).strip()),
+                "video": bool(hit.get("has_video")),
+                "audio": bool(hit.get("audio_available")),
+            },
+        ))
+    return SearchResponse(top_k=results, query_modalities=presence)
+
+
 @app.post("/search", response_model=SearchResponse)
 async def search(
     top_k: Annotated[int, Form()] = 10,
@@ -132,7 +226,6 @@ async def search(
 ) -> SearchResponse:
     if top_k <= 0:
         raise HTTPException(status_code=400, detail="top_k must be positive.")
-
     image_path = await _save_upload(image, ".jpg")
     video_path = await _save_upload(video, ".mp4")
     audio_path = await _save_upload(audio, ".wav")
@@ -150,7 +243,8 @@ async def search(
         raise HTTPException(status_code=400, detail="Provide at least one modality.")
 
     try:
-        embedding, presence = get_encoder().encode_product(product)
+        encoder = get_encoder()
+        embedding, presence = encoder.encode_product(product)
         records = get_records()
         search_backend = get_search_backend()
         query_meta = {
