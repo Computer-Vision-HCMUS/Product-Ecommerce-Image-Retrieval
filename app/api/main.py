@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from api.schemas import HealthResponse, SearchResponse, SearchResultItem, DEFAULT_FUSION_WEIGHTS, DEFAULT_WORK_DIR
-from indexing.catalog_hybrid import CatalogHybridRetriever
+from indexing.catalog_hybrid import MetadataReranker
 from indexing.improved_search import build_search_backend
 from indexing.pipeline_config import PipelineMode
 from indexing.rerank import RerankWeights
@@ -23,7 +23,6 @@ BACKEND = os.getenv("SCALE_BACKEND", "siglip").lower()
 PIPELINE_MODE = PipelineMode.from_value(os.getenv("SCALE_PIPELINE", "baseline"))
 RERANK_CANDIDATES = int(os.getenv("SCALE_RERANK_CANDIDATES", "100"))
 RERANK_LAMBDA = float(os.getenv("SCALE_RERANK_LAMBDA", "0.7"))
-ID_LEXICAL_WEIGHT = float(os.getenv("SCALE_ID_LEXICAL_WEIGHT", "0.75"))
 
 app = FastAPI(title="SCALE Product Retrieval API", version="1.0.0")
 app.add_middleware(
@@ -63,8 +62,14 @@ def get_search_backend():
 
 
 @lru_cache(maxsize=1)
-def get_catalog_hybrid_retriever() -> CatalogHybridRetriever:
-    return CatalogHybridRetriever(WORK_DIR, lexical_weight=ID_LEXICAL_WEIGHT)
+def get_metadata_reranker() -> MetadataReranker:
+    return MetadataReranker(WORK_DIR, lambda_emb=RERANK_LAMBDA)
+
+
+def rank_query(embedding, *, title: str, pv: str, top_k: int) -> list[tuple[str, float]]:
+    """Run the single serving protocol used by catalog and raw queries."""
+    candidates = get_search_backend().search(embedding, max(top_k, RERANK_CANDIDATES))
+    return get_metadata_reranker().rerank(candidates, title=title, pv=pv, top_k=top_k)
 
 
 @lru_cache(maxsize=1)
@@ -157,12 +162,7 @@ async def search_by_id(
     product_id: Annotated[str, Form()],
     top_k: Annotated[int, Form()] = 10,
 ) -> SearchResponse:
-    """Retrieve from the saved TPIVA embedding of a catalog product.
-
-    This endpoint never reconstructs an ID query from title/PV fields and never
-    applies label-aware reranking.  It is therefore the honest way to inspect
-    the trained pipeline on the pre-extracted evaluation features.
-    """
+    """Run the same I/T/Tab -> HNSW -> reranking protocol as ``/search``."""
     if top_k <= 0:
         raise HTTPException(status_code=400, detail="top_k must be positive.")
     product_id = product_id.strip()
@@ -170,28 +170,11 @@ async def search_by_id(
     if item is None:
         raise HTTPException(status_code=404, detail="Product ID is not in the serving catalog.")
     if BACKEND != "paper":
-        raise HTTPException(status_code=501, detail="Retrieval by ID requires the paper backend and saved TPIVA features.")
-
+        raise HTTPException(status_code=501, detail="Catalog-ID retrieval requires the paper backend.")
     encoder = get_encoder()
-    try:
-        embedding = encoder.encode_by_id(product_id)
-    except KeyError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail="This ID has no saved TPIVA vector. Use an ID from the gallery or test split.",
-        ) from exc
-
-    # Explicit hybrid ranking: TPIVA contributes 25%, and title/PV lexical
-    # evidence contributes 75%. Product labels are never used for ranking.
-    raw_hits = get_catalog_hybrid_retriever().search(product_id, embedding, top_k)
-    masked = set(item.get("masked_modalities", []))
-    presence = {
-        "image": bool(item.get("image_path")) and "image_url" not in masked,
-        "text": bool(str(item.get("title", "")).strip()) and "title" not in masked,
-        "table": bool(str(item.get("pv", "")).strip()) and "pv" not in masked,
-        "video": bool(item.get("has_video")) and "video_url" not in masked,
-        "audio": bool(item.get("audio_available")) and "audio" not in masked,
-    }
+    product = ProductModalities(title=str(item.get("title", "")).strip(), pv=str(item.get("pv", "")).strip(), image_path=item.get("image_path"))
+    embedding, presence = encoder.encode_product(product)
+    raw_hits = rank_query(embedding, title=product.title, pv=product.pv, top_k=top_k)
     results = []
     records = get_records()
     for hit_id, score in raw_hits:
@@ -246,21 +229,7 @@ async def search(
         encoder = get_encoder()
         embedding, presence = encoder.encode_product(product)
         records = get_records()
-        search_backend = get_search_backend()
-        query_meta = {
-            "title": product.title,
-            "pv": product.pv,
-            "label": "",
-            "super_category": "",
-        }
-        if PIPELINE_MODE is PipelineMode.IMPROVED:
-            raw_hits = search_backend.search(
-                embedding,
-                top_k,
-                query_meta=query_meta,
-            )
-        else:
-            raw_hits = search_backend.search(embedding, top_k)
+        raw_hits = rank_query(embedding, title=product.title, pv=product.table_blob(), top_k=top_k)
 
         results = []
         for product_id, score in raw_hits:

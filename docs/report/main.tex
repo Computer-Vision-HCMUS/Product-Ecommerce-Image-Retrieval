@@ -7,6 +7,19 @@
 \usepackage[utf8]{inputenc}
 \usepackage[T5]{fontenc}
 \usepackage[vietnamese,english]{babel}
+% VnTeX provides a complete Type-1 Vietnamese Computer Modern family.
+% Use it instead of IEEEtran's Times default so portable pdfLaTeX can embed it.
+\renewcommand{\rmdefault}{cmr}
+\pdfmapfile{+K:/scale/.tools/ctan/vntex-tds/fonts/map/dvips/vntex/vnrtext.map}
+\pdfmapfile{+K:/scale/.tools/ctan/vntex-tds/fonts/map/dvips/vntex/vnrother.map}
+\pdfmapfile{+K:/scale/.tools/ctan/vntex-tds/fonts/map/dvips/vntex/urwvn.map}
+\pdfmapfile{+K:/scale/.tools/ctan/vntex-tds/fonts/map/dvips/vntex/chartervn.map}
+\pdfmapfile{+K:/scale/.tools/ctan/vntex-tds/fonts/map/dvips/vntex/arevvn.map}
+\pdfmapfile{+K:/scale/.tools/ctan/vntex-tds/fonts/map/dvips/vntex/cmbrightvn.map}
+\pdfmapfile{+K:/scale/.tools/ctan/vntex-tds/fonts/map/dvips/vntex/concretevn.map}
+\pdfmapfile{+K:/scale/.tools/ctan/vntex-tds/fonts/map/dvips/vntex/grotesqvn.map}
+\pdfmapfile{+K:/scale/.tools/ctan/vntex-tds/fonts/map/dvips/vntex/txttvn.map}
+\pdfmapfile{+K:/scale/.tools/ctan/vntex-tds/fonts/map/dvips/vntex/vntopia.map}
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{booktabs}
 \usepackage{array}
@@ -60,7 +73,7 @@ Tìm kiếm sản phẩm thương mại điện tử trong thực tế không ch
 
 Phương pháp sử dụng SCALE (Self-harmonized ContrAstive Learning) để học unified embedding từ năm modality gồm image, text, table, video và audio. Các encoder riêng, Joint Co-Transformer, masked multimodal learning và SIMCL được dùng để mô hình hóa tương tác giữa các modality, đồng thời giảm ảnh hưởng của dữ liệu thiếu hoặc nhiễu. Trên không gian embedding đã chuẩn hóa, báo cáo đề xuất sử dụng Faiss HNSW để thu hẹp catalog thành tập ứng viên, sau đó tái xếp hạng theo metadata nhằm điều chỉnh thứ hạng cuối cùng.
 
-Kết quả thực nghiệm hiện có cho thấy cấu hình cải tiến nâng mAP@10 từ 6.32\% lên 16.75\% và Precision@10 từ 3.56\% lên 8.68\%. Báo cáo tách bạch các kết quả tái lập nội bộ với số liệu tham chiếu của SCALE, đồng thời chỉ ra thông tin cần được lưu đầy đủ trong các lần chạy tiếp theo để bảo đảm tái lập và so sánh công bằng với benchmark chính thức.
+Kết quả được tách thành hai nhóm metric. Với representation-only protocol tái lập nội bộ, TPIVA đạt mAP@10 0.45\%; với pipeline serving HNSW Top-100 và reranking title/PV, mAP@10 đạt 12.54\% và Precision@10 đạt 2.63\%. Báo cáo tách bạch hai nhóm này với số liệu tham chiếu SCALE, đồng thời nêu rõ chúng không phải các benchmark đồng nhất.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -101,7 +114,7 @@ Các đóng góp chính của đề tài gồm:
 \begin{enumerate}[leftmargin=*]
     \item Xây dựng pipeline multimodal product retrieval sử dụng SCALE để tạo unified embedding từ image, text, table, video và audio.
     \item Xây dựng lớp serving bằng Faiss HNSW để lọc nhanh $N>K$ ứng viên trên catalog và hỗ trợ thêm listing mà không cần huấn luyện lại index.
-    \item Đề xuất tầng reranking dựa trên siêu danh mục, danh mục, thương hiệu và thông số nhằm giảm lỗi fine-grained retrieval sau bước lọc embedding.
+    \item Triển khai tầng reranking không dùng nhãn: trộn điểm embedding với độ tương đồng TF--IDF character n-gram trên title và PV attributes sau bước lọc HNSW.
 \end{enumerate}
 
 % ============================================================
@@ -224,7 +237,7 @@ Shopsy & Image & Không & HNSW/\allowbreak ScaNN\\
 MIEM & Image + Text & Hạn chế & HNSW\\
 MRSE & Text + Image + History & Không & HNSW\\
 FashionMV & Multi-view + Text & Theo view & Product embedding\\
-SCALE + HNSW (đề xuất) & I/T/Tab/V/A & Có & HNSW\\
+SCALE + HNSW (hiện thực) & I/T/Tab/V/A & Có & HNSW\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -535,7 +548,7 @@ Quy trình online là:
     \item Sắp xếp lại và trả về $K$ listing.
 \end{enumerate}
 
-HNSW chỉ là lớp serving của đề tài; các số liệu dùng để so sánh trực tiếp với paper SCALE vẫn giữ exact-retrieval protocol.
+HNSW chỉ là lớp serving của đề tài; các số liệu dùng để so sánh trực tiếp với paper SCALE vẫn giữ exact-retrieval protocol. Trong bản triển khai serving hiện tại, cả truy vấn Catalog ID và raw I/T/Tab đều đi qua cùng một đường: SCALE tạo query embedding, HNSW lấy $N=100$ ứng viên, sau đó một reranker dùng chung mới cắt Top-$K$. Catalog ID được tái tạo thành query I/T/Tab từ metadata và ảnh catalog, thay vì dùng một thuật toán xếp hạng riêng.
 
 
 % ============================================================
@@ -551,41 +564,13 @@ Embedding similarity ($S_{\mathrm{emb}}$) thu được từ không gian ẩn c�
     \item \textbf{Bỏ sót thuộc tính quyết định:} Độ tương đồng vector chỉ phản ánh sự gần giống, nhưng giao dịch e-commerce yêu cầu sự chính xác tuyệt đối về các thuộc tính cứng như thương hiệu (Brand), siêu danh mục (Super-category) hoặc danh mục chi tiết (Category).
 \end{enumerate}
 
-Để khắc phục các điểm yếu trên, tầng tái xếp hạng dựa trên thuộc tính được tích hợp ngay sau bước lọc thô của Faiss HNSW, đóng vai trò như một bộ lọc tinh nhằm điều chỉnh điểm số dựa trên thông tin thuộc tính cấu trúc.
+Để giảm các lỗi này, tầng tái xếp hạng metadata được tích hợp ngay sau bước lọc thô của Faiss HNSW. Bản serving hiện tại dùng title và PV attributes làm metadata quan sát được; không dùng siêu danh mục, category hay product label vì các trường đó không có ở raw query và không được phép rò rỉ vào đánh giá.
 
-\subsection{Tái xếp hạng cho Truy vấn Đa phương thức có Thuộc tính (Multimodal Query với Text/Table)}
+\subsection{Reranking dùng chung cho Catalog ID và Raw Query}
 
-Khi truy vấn $q$ chứa thông tin văn bản hoặc bảng thuộc tính (từ người dùng nhập hoặc trích xuất trực tiếp), hệ thống thực hiện so khớp thuộc tính cứng giữa query và ứng viên thứ $i$ trong tập $N$ ứng viên:
+Sau khi HNSW trả về cùng tập $N$ ứng viên, hệ thống tạo văn bản metadata bằng phép nối title và PV attributes. $S_{\mathrm{attr}}(q,p_i)$ là cosine similarity giữa các vector TF--IDF character $2$--$3$ gram của văn bản query và ứng viên. Cách này dùng được cho cả Catalog ID (metadata của listing) lẫn raw query (text/table người dùng nhập), không cần suy luận nhãn, super-category hay category từ gallery.
 
-\begin{equation}
-\begin{aligned}
-S_{\mathrm{attr}}(q, p_i) ={}& \alpha \cdot I(SD_q = SD_{p_i}) + \beta \cdot I(D_q = D_{p_i}) \\
-& + \gamma \cdot \operatorname{Jaccard}(S_q, S_{p_i}),
-\end{aligned}
-\end{equation}
-
-trong đó:
-\begin{itemize}[leftmargin=*]
-    \item $SD_q, SD_{p_i}$ lần lượt là siêu danh mục (Super-category) của query và ứng viên $p_i$.
-    \item $D_q, D_{p_i}$ là danh mục chi tiết (Category) của query và ứng viên $p_i$.
-    \item $S_q, S_{p_i}$ là tập các cặp thuộc tính-giá trị (ví dụ: \{thương hiệu: Nike, chất liệu: da\}). Hàm $\operatorname{Jaccard}(S_q, S_{p_i}) = \frac{|S_q \cap S_{p_i}|}{|S_q \cup S_{p_i}|}$ đo mức độ trùng khớp các thông số kỹ thuật.
-    \item $I(\cdot)$ là hàm chỉ thị (Indicator function), trả về $1$ nếu điều kiện đúng và $0$ nếu sai.
-    \item $\alpha, \beta, \gamma$ là các hệ số trọng số thỏa mãn $\alpha + \beta + \gamma = 1$, với ưu tiên $\alpha > \beta$ để phạt nặng các sản phẩm sai lệch hẳn về ngành hàng lớn.
-\end{itemize}
-
-\subsection{Tái xếp hạng cho Truy vấn Chỉ chứa Ảnh (Image-only Query)}
-
-Đối với các truy vấn người dùng chỉ cung cấp hình ảnh (Image-only query), hệ thống không có sẵn thông tin thuộc tính văn bản nhập vào. Để giải quyết vấn đề này, phương pháp đề xuất áp dụng cơ chế phản hồi độ liên quan giả định (Pseudo Relevance Feedback - PRF) trên tập $N$ ứng viên ban đầu trả về từ Faiss HNSW:
-
-\begin{enumerate}[leftmargin=*]
-    \item \textbf{Suy luận nhãn đa số (Majority Voting):} Trích xuất danh mục của $N$ ứng viên top đầu. Xác định siêu danh mục đa số $SD^*$ và danh mục/thương hiệu đa số $D^*$ chiếm tỷ lệ xuất hiện cao nhất trong tập ứng viên.
-    \item \textbf{Tính điểm thuộc tính suy luận:}
-    \begin{equation}
-    S_{\mathrm{attr}}(q, p_i) = \alpha \cdot I(SD_{p_i} = SD^*) + \beta \cdot I(D_{p_i} = D^*).
-    \end{equation}
-\end{enumerate}
-
-Chiến lược bầu chọn đa số giúp giảm thiểu rủi ro so với việc lấy nhãn của duy nhất ứng viên Top-1 (vốn có thể bị nhiễu thị giác dẫn đến dự đoán sai). Tuy nhiên, trong trường hợp bước lọc thô HNSW bị lệch hoàn toàn (ví dụ: hơn 50\% tập $N$ ứng viên trả về sai ngành hàng), phương pháp PRF có thể bị khuếch đại lỗi và đây là một trường hợp thất bại không mong muốn.
+Với truy vấn image-only không có text/table, $S_{\mathrm{attr}}=0$; thứ hạng chỉ dựa trên $S_{\mathrm{emb}}$. Do đó hệ thống không dùng majority voting hoặc bất kỳ product label nào trong serving. Đây là giới hạn có chủ đích để không làm rò rỉ nhãn đánh giá vào kết quả truy hồi.
 
 \subsection{Hàm Điểm Tổng hợp và Điều chỉnh Miền}
 
@@ -594,13 +579,26 @@ Chiến lược bầu chọn đa số giúp giảm thiểu rủi ro so với vi�
 \begin{equation}
 S_{\mathrm{total}}(q, p_i) = \lambda \cdot S_{\mathrm{emb}}(q, p_i) + (1 - \lambda) \cdot S_{\mathrm{attr}}(q, p_i),
 \end{equation}
-với $0 \le \lambda \le 1$ là tham số điều phối tầm quan trọng giữa độ tương đồng vector và độ tương đồng thuộc tính.
+với $\lambda=0.7$ trong cấu hình serving hiện tại. Cùng một giá trị và cùng công thức được áp dụng cho mọi ngành hàng, cho Catalog ID và raw query. Các trọng số theo miền sản phẩm là hướng thử nghiệm trong tương lai, không phải kết quả đã triển khai hay đã đánh giá.
 
-Tham số $\lambda$ được điều chỉnh linh hoạt theo miền sản phẩm:
-\begin{itemize}[leftmargin=*]
-    \item \textbf{Miền thời trang:} Yếu tố kiểu dáng, màu sắc và thẩm mỹ thị giác đóng vai trò quyết định. Do đó, $\lambda$ được thiết lập cao ($\lambda \ge 0.7$) để ưu tiên độ tương đồng vector $S_{\mathrm{emb}}$.
-    \item \textbf{Miền thiết bị số / Điện máy:} Các thuộc tính cứng (dung lượng RAM, thương hiệu, mã model) quyết định tính đúng đắn của sản phẩm. Hệ thống sẽ giảm $\lambda$ ($\lambda \le 0.4$) để tăng trọng số cho $S_{\mathrm{attr}}$, tránh việc trả về sản phẩm khác model dù có hình thức giống hệt.
-\end{itemize}
+\subsection{So sánh với reranking Catalog ID trước đây}
+
+Phiên bản serving trước đây chỉ áp dụng reranking cho Catalog ID. Nó so sánh trực tiếp embedding đã lưu với \emph{toàn bộ} gallery để có $S_{\mathrm{exact}}$, sau đó trộn mạnh với TF--IDF title/PV:
+\begin{equation}
+S_{\mathrm{old}}(q,p_i)=0.25\,S_{\mathrm{exact}}(q,p_i)+0.75\,S_{\mathrm{attr}}(q,p_i).
+\end{equation}
+Raw query ở phiên bản đó không dùng công thức trên: nó chỉ trả kết quả FAISS theo $S_{\mathrm{emb}}$. Vì vậy, cùng một sản phẩm khi truy vấn bằng Catalog ID hoặc nhập raw I/T/Tab có thể có candidate set, trọng số và thứ hạng khác nhau.
+
+Cấu hình hiện tại thay bằng một công thức chung sau khi HNSW trả về $N=100$ ứng viên:
+\begin{equation}
+\begin{aligned}
+S_{\mathrm{new}}(q,p_i) &= 0.70\,S_{\mathrm{emb}}(q,p_i) \\
+&\quad + 0.30\,S_{\mathrm{attr}}(q,p_i), \\
+p_i &\in \operatorname{TopN}_{\mathrm{HNSW}}(q).
+\end{aligned}
+\end{equation}
+
+Hướng mới được chọn vì ba lý do. Thứ nhất, Catalog ID và raw query có cùng candidate set, cùng metadata score và cùng công thức, nên hai cách kiểm thử đối chiếu được khi đầu vào I/T/Tab tương đương. Thứ hai, HNSW thực hiện bước lọc theo đúng kiến trúc serving của báo cáo, thay vì Catalog ID âm thầm thực hiện full-scan khác với raw query. Thứ ba, trọng số embedding $0.70$ giữ SCALE là tín hiệu chính; title/PV chỉ điều chỉnh thứ hạng trong tập ứng viên gần, giảm rủi ro lexical overlap lấn át representation đa phương thức. Đây là quyết định thiết kế để đảm bảo nhất quán, không phải tuyên bố rằng $0.70/0.30$ đã tối ưu; benchmark tái lập mới là điều kiện để chọn trọng số cuối cùng.
 
 
 
@@ -685,34 +683,57 @@ Text & 77.42 & 47.70/65.10 & 53.63/68.39 & 51.59/66.99 & 47.70/65.10 & 30.96/44.
 
 Trên subset được báo cáo trong tài liệu gốc, việc bổ sung modality nhìn chung cải thiện Accuracy và retrieval metrics. Năm modality đạt Accuracy 85.50 và mAP@1 58.72/70.62.
 
-\subsection{Kết quả thực nghiệm hiện có}
+\subsection{Metric representation theo bài toán gốc}
 
-Các kết quả thực nghiệm hiện có ghi nhận metric của đặc trưng năm modality trước và sau cấu hình cải tiến. Bảng~\ref{tab:local-results} chuyển các giá trị từ tỉ lệ phần trăm sang dạng dễ đọc. Cột $\Delta$ là chênh lệch điểm phần trăm, không phải phần trăm tăng tương đối.
+Hai bảng sau cùng thuộc bài toán representation retrieval: query TPIVA được so với gallery TPIVA, không dùng title/PV reranking. Bảng~\ref{tab:scale-results} là kết quả do SCALE công bố theo M5Product protocol. Bảng~\ref{tab:local-results} là kết quả tái lập nội bộ bằng script retrieval gốc: dot product trực tiếp trên TPIVA test và gallery, sau đó chấm positive cùng label trong subset. Hai bảng phải được đặt cạnh nhau để tham chiếu, nhưng không được so sánh như hai benchmark đồng nhất vì khác checkpoint, quy mô dữ liệu, positive definition và protocol ground truth.
 
 \begin{table}[t]
 \centering
-\caption{Kết quả tái lập hiện có: baseline và cấu hình cải tiến}
+\caption{Tái lập nội bộ metric representation gốc (\%)}
 \label{tab:local-results}
 \small
-\begin{tabular}{crrrrr}
+\begin{tabular}{crrr}
 \toprule
-$K$ & \multicolumn{2}{c}{mAP (\%)} & \multicolumn{2}{c}{Precision (\%)} & $\Delta$ mAP\\
- & Baseline & Cải tiến & Baseline & Cải tiến & (điểm \%)\\
+$K$ & mAP & Precision & HitRate\\
 \midrule
-1  & 5.17 & 14.94 & 5.17 & 14.94 & +9.77\\
-5  & 5.89 & 16.18 & 3.22 & 10.57 & +10.29\\
-10 & 6.32 & 16.75 & 3.56 & 8.68 & +10.43\\
+1  & 0.19 & 0.19 & 0.19\\
+5  & 0.39 & 0.28 & 1.42\\
+10 & 0.45 & 0.25 & 2.47\\
+\midrule
+Trung bình @1/@5/@10 & 0.34 & 0.24 & --\\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Ở $K=10$, cấu hình cải tiến tăng mAP thêm 10.43 điểm phần trăm (xấp xỉ 2.65 lần) và Precision thêm 5.11 điểm phần trăm (xấp xỉ 2.44 lần). Xu hướng này lặp lại tại $K=1$, $5$ và $10$, cho thấy thứ hạng đầu danh sách đã được cải thiện chứ không chỉ thay đổi ở một ngưỡng cắt.
+Ở $K=10$, tái lập nội bộ đạt mAP 0.45\% và Precision 0.25\%. Đây là số liệu của representation-only protocol hiện có, không phải kết quả của pipeline serving.
 
-\subsubsection{Vì sao cấu hình cải tiến có kết quả tốt hơn}
+\subsection{Metric hệ thống cho pipeline serving}
 
-Về mặt cơ chế, cải tiến tác động vào hai điểm dễ gây sai lệch trong product retrieval. Thứ nhất, HNSW thu hẹp catalog thành tập ứng viên gần trong không gian embedding, nên tầng sau chỉ cần phân biệt các sản phẩm thực sự cạnh tranh về ngữ nghĩa. Thứ hai, metadata reranking cộng thêm tín hiệu siêu danh mục, danh mục và thuộc tính vào điểm embedding. Các tín hiệu này đặc biệt hữu ích khi nhiều listing có ảnh gần giống về màu sắc, texture hoặc bố cục nhưng không cùng ngành hàng hay không cùng model. Với query chỉ có ảnh, bầu chọn thuộc tính từ tập ứng viên ban đầu còn tạo một prior về ngành hàng trước khi sắp xếp lại.
+Ngược lại, Bảng~\ref{tab:serving-results} đo bài toán hệ thống của đề tài: 1,054 TPIVA test query được L2-normalize, HNSW lấy 100 ứng viên, sau đó title/PV TF--IDF reranking với $\lambda=0.7$ mới trả Top-$K$. Label chỉ được dùng ở bước chấm điểm positive cùng label, không được đưa vào retrieval hoặc reranking. Paper SCALE không công bố metric cho pipeline HNSW + metadata này nên bảng chỉ có kết quả của hệ thống hiện tại.
 
-Do đó, việc mAP tăng cho thấy positive item xuất hiện sớm hơn trong danh sách; Precision tăng cho thấy Top-$K$ chứa ít candidate sai hơn. Hai chuyển biến này phù hợp với kỳ vọng của reranking: representation của SCALE cung cấp tập ứng viên có liên quan về ngữ nghĩa, còn thuộc tính cấu trúc loại bớt các item chỉ giống về thị giác. Tuy nhiên, các số liệu đã lưu không kèm split, số query, seed, định nghĩa positive, tham số $N,\alpha,\beta,\gamma,\lambda$ hay latency. Vì vậy, chúng chỉ cho thấy toàn bộ cấu hình cải tiến tốt hơn baseline trong lần đánh giá đã lưu; chưa đủ để quy kết độc lập mức tăng cho HNSW, bầu chọn đa số hoặc từng trọng số reranking.
+\begin{table}[t]
+\centering
+\caption{Metric pipeline serving HNSW + reranking dùng chung (\%)}
+\label{tab:serving-results}
+\small
+\begin{tabular}{crrr}
+\toprule
+$K$ & mAP & Precision & HitRate\\
+\midrule
+1  & 16.13 & 16.13 & 16.13\\
+5  & 12.48 & 4.90 & 20.59\\
+10 & 12.54 & 2.63 & 22.20\\
+\midrule
+Trung bình @1/@5/@10 & 13.72 & 7.88 & --\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Vì sao hai nhóm metric chênh lệch lớn}
+
+Chênh lệch không phải do chỉ thay cách tính metric, mà do ba thay đổi của hệ thống xếp hạng. (i) Script gốc dùng dot product không L2-normalize; norm TPIVA trong lần chạy này dao động từ 270 đến 342, nên độ lớn vector ảnh hưởng mạnh đến thứ hạng. Khi L2-normalize và chỉ dùng HNSW embedding-only, mAP@10 tăng từ 0.45\% lên 2.10\%. (ii) Serving HNSW sử dụng candidate set cố định 100 item, thay vì full-scan theo dot product cũ. (iii) Reranker dùng title/PV là tín hiệu quan sát được của query và nâng mAP@10 tiếp từ 2.10\% lên 12.54\%. Vì vậy mức tăng là thay đổi retrieval objective từ representation-only sang multimodal serving, không phải bằng chứng rằng backbone SCALE tự tăng tương ứng.
+
+Ở Top-1, mAP tăng từ 0.19\% lên 16.13\%, xấp xỉ 85 lần; ở Top-10, tăng từ 0.45\% lên 12.54\%, xấp xỉ 28 lần. Sự tăng này hợp lý vì title/PV trong M5Product thường chứa brand, model và thuộc tính phân biệt trực tiếp; tuy nhiên nó phải được diễn giải là hiệu năng của pipeline có metadata, không được dùng để so sánh trực tiếp với metric original của SCALE.
 
 \subsubsection{Vì sao metric nội bộ thấp hơn kết quả công bố}
 
@@ -726,7 +747,7 @@ Khác biệt rõ hơn nằm ở tín hiệu thời gian. Paper lấy mẫu đề
 
 \subsubsection{Giới hạn đánh giá end-to-end}
 
-Để metric phản ánh đúng năng lực SCALE, query mới và catalog phải được mã hóa bởi cùng checkpoint, cùng tiền xử lý và cùng không gian embedding. Rà soát hiện thực cho thấy nhánh encoder hiện có có thể tái sử dụng embedding đã lưu khi title khớp catalog; với truy vấn mới không khớp, nó dùng vector trung bình làm phương án dự phòng. Khi đó, kết quả truy hồi chưa đo đầy đủ năng lực mã hóa query đa phương thức của SCALE. Tương tự, metadata reranking chỉ nên được xem là nguyên nhân của mức tăng khi nó được chạy end-to-end với tham số đã lưu và có log candidate trước/sau tái xếp hạng.
+Để metric phản ánh đúng năng lực SCALE, query mới và catalog phải được mã hóa bởi cùng checkpoint, cùng tiền xử lý và cùng không gian embedding. Serving hiện tại đã mã hóa raw query trực tiếp bằng checkpoint SCALE; Catalog ID được tái tạo thành cùng query I/T/Tab và đi qua cùng HNSW cùng reranker. Tuy nhiên, cosine giữa online preprocessing và feature offline cần tiếp tục được theo dõi bằng smoke test, đồng thời cần lưu log candidate trước/sau reranking và manifest tham số để quy kết mức tăng metric.
 
 Vì vậy, metric thấp hơn không đồng nghĩa SCALE kém hơn kết quả công bố. Chúng phản ánh tổng hợp khác biệt về quy mô dữ liệu, protocol, positive definition, pipeline tiền xử lý, checkpoint pretraining/fine-tuning và mức hoàn thiện hệ thống. Một manifest đầy đủ cho mỗi lần chạy, gồm split, seed, số query, checkpoint, tham số HNSW, trọng số reranking và latency, là điều kiện cần để xác định phần chênh lệch nào đến từ representation, phần nào đến từ serving.
 
@@ -750,7 +771,7 @@ Zero imputation cho phép mẫu thiếu modality vẫn được giữ trong trai
 
 \subsection{Giới hạn hiện thực và khả năng suy diễn}
 
-Việc rà soát mã nguồn cho thấy phần đánh giá có thể tính metric trên positive set theo nhãn, nhưng kết quả đang lưu không kèm manifest thực nghiệm. Ngoài ra, lớp API hiện tham chiếu các thành phần tái xếp hạng chưa có trong cây mã nguồn; nhánh encoder theo SCALE chỉ trả embedding đã lưu khi title khớp catalog và dùng vector trung bình làm phương án dự phòng. Vì vậy, báo cáo chỉ diễn giải reranking như \emph{phương pháp đề xuất} cho tới khi các thành phần này được bổ sung và truy vấn ảnh/text mới được mã hóa thực sự bằng checkpoint SCALE. Đây là ranh giới cần nêu rõ để không diễn giải quá mức các metric trong Bảng~\ref{tab:local-results}.
+Phần đánh giá dùng label chỉ để chấm positive, không dùng label để xếp hạng. API hiện đã có encoder raw query và reranking end-to-end: cùng HNSW candidate set, TF--IDF title/PV và $\lambda=0.7$ cho Catalog ID lẫn raw query. Benchmark serving đã được lưu cùng tham số và split; tuy nhiên chưa có candidate logs hoặc ablation đầy đủ, nên Bảng~\ref{tab:serving-results} không được dùng để khẳng định riêng mức đóng góp của reranking.
 
 % ============================================================
 \section{Hướng phát triển tương lai}
@@ -760,16 +781,15 @@ Ba hướng ưu tiên để hoàn thiện hệ thống là:
 \begin{itemize}[leftmargin=*]
     \item \textbf{Ablation và tái lập có kiểm soát:} đánh giá lần lượt SCALE exact retrieval, SCALE + HNSW, và SCALE + HNSW + metadata reranking trên cùng split; sau đó tách các nhóm query image-only, image+text và có table. Ablation theo số modality, nhiều seed, cùng manifest gồm checkpoint, split, positive definition, tham số index và trọng số reranking sẽ cho biết chính xác thành phần nào tạo ra mức tăng.
     \item \textbf{Tích hợp pipeline chuẩn SCALE:} thay các bước được đơn giản hóa do giới hạn phần cứng bằng cấu hình sát paper hơn: sampling video 1 frame/giây, audio MFCC, feature extractor và checkpoint pretraining/fine-tuning tương thích. Mục tiêu là để representation của query và catalog được tạo bởi cùng pipeline SCALE, từ đó so sánh công bằng hơn với kết quả công bố.
-    \item \textbf{Frontend đánh giá trực quan:} xây dựng giao diện cho phép tải query image hoặc image+text, hiển thị Top-$K$, metadata, điểm embedding, điểm reranking và thời gian phản hồi. Việc quan sát trực tiếp các trường hợp đúng/sai và thu nhận phản hồi người dùng sẽ hỗ trợ hiệu chỉnh trọng số, xác nhận category suy luận và đánh giá trải nghiệm retrieval end-to-end.
 \end{itemize}
 
 % ============================================================
 \section{Kết luận}
 % ============================================================
 
-Bài báo trình bày thiết kế visual product search mở rộng thành multimodal retrieval cho catalog thương mại điện tử. SCALE là backbone biểu diễn năm modality, còn Faiss HNSW và attribute-aware reranking là lớp serving được đề xuất để cân bằng tốc độ với tính đúng đắn theo thuộc tính. Trên các kết quả hiện có, cấu hình cải tiến đạt mAP@10 16.75\% so với 6.32\% của baseline và Precision@10 8.68\% so với 3.56\%.
+Bài báo trình bày hệ thống multimodal retrieval cho catalog thương mại điện tử: SCALE tạo biểu diễn năm modality, Faiss HNSW sinh candidate và reranker không dùng nhãn trộn điểm embedding với title/PV metadata. Catalog ID và raw I/T/Tab dùng cùng một đường serving, nên có thể đối chiếu trực tiếp khi đầu vào tương đương.
 
-Đóng góp chính của bản báo cáo là tách bạch ba mức bằng chứng: số liệu tham chiếu từ bài báo SCALE, kết quả tái lập nội bộ đã lưu, và hệ thống end-to-end cần hoàn thiện. Bước tiếp theo là lưu đầy đủ manifest, hoàn thiện mã reranking/encoder truy vấn mới, rồi đánh giá exact retrieval, HNSW và reranking trên cùng split. Cách báo cáo này tránh nhầm lẫn giữa chất lượng representation, chất lượng ANN và hiệu năng hệ thống.
+Đóng góp chính của bản báo cáo là tách bạch ba mức bằng chứng: số liệu tham chiếu từ paper SCALE, metric representation tái lập nội bộ và metric của hệ thống end-to-end hiện tại. Bước tiếp theo là lưu candidate logs và chạy ablation exact retrieval, HNSW embedding-only và HNSW + reranking trên cùng split.
 
 
 \section*{Lời cảm ơn}
@@ -904,6 +924,8 @@ FFmpeg Developers,
 % APPENDIX
 % ============================================================
 
+\clearpage
+\onecolumn
 \section*{Appendix: Ký hiệu}
 
 \begin{table}[h]
@@ -911,28 +933,52 @@ FFmpeg Developers,
 \caption{Danh sách ký hiệu và ý nghĩa}
 \label{tab:notation}
 \small
-\begin{tabular}{L{2.2cm} L{5.6cm}}
+\begin{tabular}{L{3.0cm} L{11.0cm}}
 \toprule
 \textbf{Ký hiệu} & \textbf{Ý nghĩa} \\
 \midrule
-$q = (I, T, Tab, V, A)$ & Query đa phương thức (Image, Text, Table, Video, Audio); tối thiểu Image hoặc Video. \\
+$q = (I, T, Tab, V, A)$ & Query đa phương thức (Image, Text, Table, Video, Audio); có thể chỉ có một modality. \\
 $G = \{p_1, \ldots, p_N\}$ & Kho sản phẩm. \\
 $p_i$ & Một listing, cùng bộ năm modality, có thể thiếu nhánh. \\
 $K$ & Số kết quả trả về. \\
-$N$ & Số ứng viên lọc thô HNSW, $N > K$. \\
+$N$ & Số ứng viên lọc thô HNSW; serving hiện tại dùng $N=100$. \\
 $f(\cdot)$ & SCALE encoder, unified embedding. \\
 $\mathrm{sim}(\cdot) / S_{\mathrm{emb}}$ & Độ tương đồng embedding (inner product sau L2-normalize). \\
 $S$ & Alignment score matrix trong SIMCL. \\
 $S(u, v)$ & Mức bổ trợ semantic giữa hai modality. \\
-$S_{\mathrm{thuoc\_tinh}}$ & Điểm khớp siêu danh mục / danh mục / thông số. \\
-$S_{\mathrm{tong}}$ & $\lambda S_{\mathrm{emb}} + (1-\lambda) S_{\mathrm{thuoc\_tinh}}$. \\
-$SD, D$ & Siêu danh mục, danh mục ($D^*$ là danh mục đa số). \\
-$I(\cdot)$ & Hàm chỉ thị; 0 nếu thiếu thành phần query. \\
+$S_{\mathrm{attr}}$ & Cosine TF--IDF character n-gram giữa title/PV của query và candidate. \\
+$S_{\mathrm{total}}$ & $\lambda S_{\mathrm{emb}} + (1-\lambda) S_{\mathrm{attr}}$, với $\lambda=0.7$. \\
 $\mathrm{JCT}$ & Joint Co-Transformer. \\
 $\mathrm{SIMCL}$ & Self-harmonized Inter-Modality Contrastive Learning. \\
 $\mathrm{HNSW}$ & Hierarchical Navigable Small World (Faiss). \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\clearpage
+\section*{Appendix: Frontend interface}
+
+Phu luc nay minh hoa giao dien cua he thong retrieval trong ba trang thai su dung chinh.
+
+\begin{figure}[p]
+    \centering
+    \includegraphics[width=0.82\textwidth]{figure/fe1.jpg}
+    \caption{Giao dien nhap truy van raw voi Text va PV attributes.}
+    \label{fig:frontend-raw-query}
+\end{figure}
+
+\begin{figure}[p]
+    \centering
+    \includegraphics[width=0.82\textwidth]{figure/fe2.jpg}
+    \caption{Giao dien tim kiem theo Catalog ID va danh sach ket qua Top-$K$.}
+    \label{fig:frontend-catalog-id}
+\end{figure}
+
+\begin{figure}[p]
+    \centering
+    \includegraphics[width=0.82\textwidth]{figure/fe3.jpg}
+    \caption{Trang chi tiet mot san pham duoc mo tu ket qua retrieval.}
+    \label{fig:frontend-product-detail}
+\end{figure}
 
 \end{document}

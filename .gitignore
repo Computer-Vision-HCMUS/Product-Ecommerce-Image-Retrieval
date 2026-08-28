@@ -66,3 +66,6 @@ output/**
 !output/
 !output/improvement.json
 !output/non-improvement.json
+
+# .tool
+*tools/
