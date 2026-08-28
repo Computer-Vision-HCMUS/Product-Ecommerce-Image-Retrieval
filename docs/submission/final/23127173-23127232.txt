@@ -7,5 +7,6 @@ Nội dung Drive gồm:
 - Thư mục Báo cáo 
 - Thư mục Source code 
 - Thư mục Slide
+- Thư mục Video Demo
 
 Nhóm xin cảm ơn Thầy.
