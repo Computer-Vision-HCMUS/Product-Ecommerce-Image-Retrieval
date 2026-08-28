@@ -802,8 +802,9 @@ Mặc dù đã cố gắng hoàn thành đồ án một cách tốt nhất nhưn
 % ============================================================
 % REFERENCES
 % ============================================================
-% Nếu muốn đổi tên tiêu đề tài liệu tham khảo và chỉnh khoảng cách nhẹ nhàng:
-\renewcommand{\refname}{REFERENCES}
+% Cân đều hai cột ở trang tài liệu tham khảo cuối cùng.
+\renewcommand{\refname}{Tài liệu tham khảo}
+\balance
 
 \begin{thebibliography}{99}
 
@@ -926,14 +927,19 @@ FFmpeg Developers,
 
 \clearpage
 \onecolumn
-\section*{Appendix: Ký hiệu}
+\renewcommand{\appendixname}{Phụ lục}
+\appendices
+\section{Danh mục ký hiệu}
+\label{app:notation}
 
-\begin{table}[h]
+\begin{table}[htbp]
 \centering
-\caption{Danh sách ký hiệu và ý nghĩa}
+\caption{Các ký hiệu sử dụng trong báo cáo}
 \label{tab:notation}
 \small
-\begin{tabular}{L{3.0cm} L{11.0cm}}
+\renewcommand{\arraystretch}{1.16}
+\setlength{\tabcolsep}{7pt}
+\begin{tabular}{L{4.0cm} L{12.8cm}}
 \toprule
 \textbf{Ký hiệu} & \textbf{Ý nghĩa} \\
 \midrule
@@ -956,29 +962,42 @@ $\mathrm{HNSW}$ & Hierarchical Navigable Small World (Faiss). \\
 \end{table}
 
 \clearpage
-\section*{Appendix: Frontend interface}
+\section{Giao diện hệ thống}
+\label{app:frontend}
 
-Phu luc nay minh hoa giao dien cua he thong retrieval trong ba trang thai su dung chinh.
+Phụ lục này minh họa giao diện của hệ thống retrieval trong ba trạng thái sử dụng
+chính: nhập truy vấn đa phương thức, tìm kiếm theo Catalog ID và xem chi tiết sản
+phẩm. Hai màn hình tìm kiếm được đặt cạnh nhau để thuận tiện đối chiếu; màn hình
+chi tiết được trình bày riêng ở phía dưới.
 
-\begin{figure}[p]
+\begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.82\textwidth]{figure/fe1.jpg}
-    \caption{Giao dien nhap truy van raw voi Text va PV attributes.}
-    \label{fig:frontend-raw-query}
-\end{figure}
+    \begin{minipage}[t]{0.485\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figure/fe1.jpg}
+        \vspace{2pt}
 
-\begin{figure}[p]
-    \centering
-    \includegraphics[width=0.82\textwidth]{figure/fe2.jpg}
-    \caption{Giao dien tim kiem theo Catalog ID va danh sach ket qua Top-$K$.}
-    \label{fig:frontend-catalog-id}
-\end{figure}
+        \small (a) Nhập truy vấn raw bằng text và PV attributes.
+    \end{minipage}\hfill
+    \begin{minipage}[t]{0.485\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figure/fe2.jpg}
+        \vspace{2pt}
 
-\begin{figure}[p]
-    \centering
-    \includegraphics[width=0.82\textwidth]{figure/fe3.jpg}
-    \caption{Trang chi tiet mot san pham duoc mo tu ket qua retrieval.}
-    \label{fig:frontend-product-detail}
+        \small (b) Tìm kiếm theo Catalog ID và hiển thị kết quả Top-$K$.
+    \end{minipage}
+
+    \vspace{0.7em}
+
+    \begin{minipage}[t]{0.68\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figure/fe3.jpg}
+        \vspace{2pt}
+
+        \small (c) Xem thông tin chi tiết của một sản phẩm từ kết quả retrieval.
+    \end{minipage}
+    \caption{Ba trạng thái chính của giao diện hệ thống retrieval.}
+    \label{fig:frontend-interface}
 \end{figure}
 
 \end{document}
