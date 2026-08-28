@@ -201,7 +201,9 @@ class Pretrain_DataSet_Train(object):
         ds = td.MapData(ds, preprocess_function)
         # self.ds = td.PrefetchData(ds, 1)
         # ds = td.PrefetchDataZMQ(ds, num_workers)
-        self.ds = td.BatchData(ds, batch_size)
+        # Keep the final partial batch.  Dropping it silently changes the
+        # retrieval query/gallery populations (e.g. 1054 -> 1048 at batch 8).
+        self.ds = td.BatchData(ds, batch_size, remainder=True)
         # self.ds = ds
         self.ds.reset_state() # TODO: it is retained in the original version
 
